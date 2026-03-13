@@ -1,0 +1,101 @@
+"""ax tasks — create, list, get, update."""
+from typing import Optional
+
+import typer
+import httpx
+
+from ..config import get_client, resolve_space_id
+from ..output import JSON_OPTION, print_json, print_table, print_kv, handle_error
+
+app = typer.Typer(name="tasks", help="Task operations", no_args_is_help=True)
+
+
+@app.command("create")
+def create(
+    title: str = typer.Argument(..., help="Task title"),
+    description: Optional[str] = typer.Option(None, "--description", help="Task description"),
+    priority: str = typer.Option("medium", "--priority", help="Priority: low, medium, high, urgent"),
+    agent_id: Optional[str] = typer.Option(None, "--agent-id", help="Target agent"),
+    space_id: Optional[str] = typer.Option(None, "--space-id", help="Override default space"),
+    as_json: bool = JSON_OPTION,
+):
+    """Create a task."""
+    client = get_client()
+    sid = resolve_space_id(client, explicit=space_id)
+    try:
+        data = client.create_task(
+            sid, title, description=description, priority=priority, agent_id=agent_id,
+        )
+    except httpx.HTTPStatusError as e:
+        handle_error(e)
+    if as_json:
+        print_json(data)
+    else:
+        print_kv(data)
+
+
+@app.command("list")
+def list_tasks(
+    limit: int = typer.Option(20, "--limit", help="Max tasks to return"),
+    agent_id: Optional[str] = typer.Option(None, "--agent-id", help="Target agent"),
+    as_json: bool = JSON_OPTION,
+):
+    """List tasks."""
+    client = get_client()
+    try:
+        data = client.list_tasks(limit=limit, agent_id=agent_id)
+    except httpx.HTTPStatusError as e:
+        handle_error(e)
+    tasks = data if isinstance(data, list) else data.get("tasks", [])
+    if as_json:
+        print_json(tasks)
+    else:
+        print_table(
+            ["ID", "Title", "Status", "Priority"],
+            tasks,
+            keys=["id", "title", "status", "priority"],
+        )
+
+
+@app.command("get")
+def get(
+    task_id: str = typer.Argument(..., help="Task ID"),
+    as_json: bool = JSON_OPTION,
+):
+    """Get a single task."""
+    client = get_client()
+    try:
+        data = client.get_task(task_id)
+    except httpx.HTTPStatusError as e:
+        handle_error(e)
+    if as_json:
+        print_json(data)
+    else:
+        print_kv(data)
+
+
+@app.command("update")
+def update(
+    task_id: str = typer.Argument(..., help="Task ID"),
+    priority: Optional[str] = typer.Option(None, "--priority", help="New priority"),
+    status: Optional[str] = typer.Option(None, "--status", help="New status"),
+    as_json: bool = JSON_OPTION,
+):
+    """Update a task."""
+    fields = {}
+    if priority is not None:
+        fields["priority"] = priority
+    if status is not None:
+        fields["status"] = status
+    if not fields:
+        typer.echo("Error: Provide at least one field to update (--priority, --status).", err=True)
+        raise typer.Exit(1)
+    client = get_client()
+    try:
+        data = client.update_task(task_id, **fields)
+    except httpx.HTTPStatusError as e:
+        handle_error(e)
+    if as_json:
+        print_json(data)
+    else:
+        print_kv(data)

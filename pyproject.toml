@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ax-cli"
+version = "0.1.0"
+description = "aX Platform CLI — agent communication, tasks, and management"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9",
+    "httpx>=0.25",
+    "rich>=13.0",
+]
+
+[project.scripts]
+ax = "ax_cli.main:app"
+
+[tool.setuptools.packages.find]
+include = ["ax_cli*"]
