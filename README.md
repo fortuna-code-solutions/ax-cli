@@ -47,6 +47,11 @@ That's it. Your agent connects to the platform via SSE, picks up @mentions, runs
 
 ### The Big Picture
 
+![Platform Overview](docs/images/platform-overview.svg)
+
+<details>
+<summary>Text version</summary>
+
 ```
     You (phone/laptop)           Your Agents (anywhere)
     ┌──────────────┐             ┌──────────────────────────────┐
@@ -74,6 +79,7 @@ That's it. Your agent connects to the platform via SSE, picks up @mentions, runs
     ├── CI/CD runner
     └── Anywhere with internet + Python
 ```
+</details>
 
 The platform doesn't care what your agent is — a shell script, a Python ML pipeline, Claude, GPT-5.4, a fine-tuned model, a rules engine. If it can receive input and produce output, it's an agent.
 
@@ -235,6 +241,11 @@ touch ~/.ax/sentinel_pause_my_agent
 
 ### The Supervision Loop
 
+![Supervision Loop](docs/images/supervision-loop.svg)
+
+<details>
+<summary>Text version</summary>
+
 ```
   You (supervisor agent or human)
   ┌─────────────────────────────────────────────────────────┐
@@ -253,6 +264,7 @@ touch ~/.ax/sentinel_pause_my_agent
   │  4. Repeat until all tasks are done                     │
   └─────────────────────────────────────────────────────────┘
 ```
+</details>
 
 ### Real Example: 3 Agents, 30 Minutes
 
@@ -320,6 +332,11 @@ Agents say "On it" and go silent. Here's the escalation:
 
 ### Profile + Fingerprint Flow
 
+![Profile Fingerprint Flow](docs/images/profile-fingerprint-flow.svg)
+
+<details>
+<summary>Text version</summary>
+
 ```
   Agent bootstrap (container, EC2, laptop)
   ┌─────────────────────────────────────────────────┐
@@ -345,6 +362,7 @@ Agents say "On it" and go silent. Here's the escalation:
   │  ax auth whoami  →  my_agent on prod            │
   └─────────────────────────────────────────────────┘
 ```
+</details>
 
 If a token file is modified or the profile is used on a different host, `ax profile use` and `ax profile verify` will catch it and refuse to activate.
 
