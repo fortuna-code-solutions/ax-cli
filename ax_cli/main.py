@@ -5,7 +5,7 @@ from typing import Optional
 import httpx
 import typer
 
-from .commands import auth, keys, agents, messages, tasks, events, listen, context, watch, upload, profile
+from .commands import auth, keys, agents, messages, tasks, events, listen, context, watch, upload, profile, assign
 
 app = typer.Typer(name="ax", help="aX Platform CLI", no_args_is_help=True)
 app.add_typer(auth.app, name="auth")
@@ -19,6 +19,7 @@ app.add_typer(context.app, name="context")
 app.add_typer(watch.app, name="watch")
 app.add_typer(upload.app, name="upload")
 app.add_typer(profile.app, name="profile")
+app.add_typer(assign.app, name="assign")
 
 
 @app.command("send")

@@ -1,0 +1,178 @@
+"""ax assign — assign work to an agent and track until complete."""
+import time
+from typing import Optional
+
+import httpx
+import typer
+
+from ..config import get_client, resolve_space_id
+from ..output import JSON_OPTION, print_json, handle_error, console
+
+app = typer.Typer(name="assign", help="Assign work to agents and track completion", no_args_is_help=True)
+
+
+@app.callback(invoke_without_command=True)
+def assign(
+    agent: str = typer.Argument(..., help="Agent to assign (@name or name)"),
+    instructions: str = typer.Argument(..., help="What the agent should do"),
+    watch: bool = typer.Option(True, "--watch/--no-watch", help="Watch for completion (default: yes)"),
+    timeout: int = typer.Option(300, "--timeout", "-t", help="Seconds to wait per check cycle"),
+    max_cycles: int = typer.Option(5, "--max-cycles", help="Max nudge cycles before giving up"),
+    priority: str = typer.Option("high", "--priority", help="Task priority"),
+    space_id: Optional[str] = typer.Option(None, "--space-id", help="Override default space"),
+    json_output: bool = JSON_OPTION,
+):
+    """Assign work to an agent: create task, send instructions, track until done.
+
+    Creates a task, sends @mention with instructions, then watches for completion.
+    If the agent doesn't respond, nudges them. Repeats until done or max cycles.
+
+    Examples:
+        ax assign mcp_sentinel "Redesign context-explorer per design brief"
+        ax assign backend_sentinel "Fix the auth bug" --timeout 600
+        ax assign frontend_sentinel "Add upload button" --no-watch
+    """
+    client = get_client()
+    sid = resolve_space_id(client, explicit=space_id)
+
+    # Normalize agent name
+    agent_name = agent.lstrip("@")
+
+    # Step 1: Create task
+    console.print(f"[cyan]Creating task for @{agent_name}...[/cyan]")
+    try:
+        task_data = client.create_task(
+            sid, instructions[:120], description=instructions, priority=priority,
+        )
+    except httpx.HTTPStatusError as e:
+        handle_error(e)
+        raise typer.Exit(1)
+
+    task = task_data.get("task", task_data)
+    task_id = str(task.get("id", ""))
+    tid_short = task_id[:8]
+    console.print(f"[green]Task created:[/green] {tid_short}… ({priority})")
+
+    # Step 2: Send assignment message
+    content = f"@{agent_name} Assignment: {instructions}\n\nTask ID: `{tid_short}…`\n\n@mention @orion when done."
+    try:
+        msg = client.send_message(sid, content)
+        msg_id = msg.get("id", msg.get("message", {}).get("id", ""))
+        console.print(f"[green]Assignment sent:[/green] {msg_id}")
+    except httpx.HTTPStatusError as e:
+        handle_error(e)
+        raise typer.Exit(1)
+
+    if not watch:
+        if json_output:
+            print_json({"task_id": task_id, "message_id": msg_id, "agent": agent_name, "status": "assigned"})
+        return
+
+    # Step 3: Watch loop — track until agent confirms done
+    console.print(f"\n[dim]Watching @{agent_name} (timeout: {timeout}s, max cycles: {max_cycles})...[/dim]")
+
+    for cycle in range(1, max_cycles + 1):
+        console.print(f"\n[cyan]── Cycle {cycle}/{max_cycles} ──[/cyan]")
+
+        # Wait for response from the agent
+        done = _watch_for_agent(client, agent_name, timeout=timeout)
+
+        if done is None:
+            # Timeout — nudge
+            console.print(f"[yellow]No response from @{agent_name} in {timeout}s. Nudging...[/yellow]")
+            try:
+                client.send_message(
+                    sid,
+                    f"@{agent_name} Status check — are you still working on: {instructions[:80]}? Task: `{tid_short}…`",
+                )
+            except Exception:
+                pass
+            continue
+
+        # Got a response — check if it signals completion
+        response_text = done.lower() if isinstance(done, str) else ""
+        completion_signals = ["done", "pushed", "merged", "completed", "finished", "pr ", "pull request", "branch "]
+
+        if any(signal in response_text for signal in completion_signals):
+            console.print(f"[green]@{agent_name} signals completion![/green]")
+            console.print(f"[dim]Response: {done[:200]}[/dim]")
+
+            # Update task
+            try:
+                client.update_task(task_id, status="completed")
+                console.print(f"[green]Task {tid_short}… marked complete.[/green]")
+            except Exception:
+                pass
+
+            if json_output:
+                print_json({
+                    "task_id": task_id,
+                    "message_id": msg_id,
+                    "agent": agent_name,
+                    "status": "completed",
+                    "response": done[:500] if isinstance(done, str) else str(done),
+                    "cycles": cycle,
+                })
+            return
+
+        # Response but not a completion signal — show it and continue watching
+        console.print(f"[dim]@{agent_name}: {done[:200] if isinstance(done, str) else '(responded)'}[/dim]")
+        console.print("[dim]Not a completion signal — continuing to watch...[/dim]")
+
+    # Exhausted cycles
+    console.print(f"\n[yellow]Max cycles reached ({max_cycles}). @{agent_name} has not confirmed completion.[/yellow]")
+    console.print("[dim]Check messages manually or run again.[/dim]")
+
+    if json_output:
+        print_json({
+            "task_id": task_id,
+            "message_id": msg_id,
+            "agent": agent_name,
+            "status": "timeout",
+            "cycles": max_cycles,
+        })
+
+
+def _watch_for_agent(client, agent_name: str, *, timeout: int = 300) -> str | None:
+    """Poll messages for a response from the agent. Returns message content or None."""
+    deadline = time.time() + timeout
+    seen_ids: set[str] = set()
+    poll_interval = 3.0
+
+    while time.time() < deadline:
+        remaining = int(deadline - time.time())
+        if remaining <= 0:
+            break
+
+        try:
+            data = client.list_messages(limit=10)
+            messages = data if isinstance(data, list) else data.get("messages", data.get("items", []))
+
+            for msg in messages:
+                msg_id = msg.get("id", "")
+                if msg_id in seen_ids:
+                    continue
+                seen_ids.add(msg_id)
+
+                # Check if this message is from our target agent
+                author = msg.get("author", {})
+                if isinstance(author, dict):
+                    sender = author.get("username", "")
+                elif isinstance(author, str):
+                    sender = author
+                else:
+                    sender = str(msg.get("agent_name", msg.get("sender", "")))
+
+                if agent_name.lower() in sender.lower():
+                    return msg.get("content", "(no content)")
+
+        except Exception:
+            pass
+
+        # Heartbeat
+        if remaining % 30 < poll_interval:
+            console.print(f"  [dim]... waiting ({remaining}s remaining)[/dim]", end="\r")
+
+        time.sleep(poll_interval)
+
+    return None
