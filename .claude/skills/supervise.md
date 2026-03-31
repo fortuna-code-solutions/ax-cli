@@ -176,14 +176,32 @@ ax send "@agent Merged and task closed. Good work." --skip-ax
 - **Branch includes unrelated changes** — tell them: "Make a CLEAN branch from dev/staging with ONLY the fix. `git checkout dev/staging && git pull` first."
 - **Agent deletes DESIGN.md or reverts other work** — they branched from old state. Same fix: clean branch from dev/staging.
 - **Tool output leaking in messages** — remind: "Your final message must be clean, no [tool:...] output."
+- **Agent says "pushed" but branch is empty** — always verify with `git log origin/dev/staging..origin/<branch> --oneline`. If zero commits, call it out and demand real code.
+- **Agent says "On it" but never ships** — don't trust acknowledgments. After 2 "On it" messages with no branch, escalate the nudge with specific file/function expectations.
+- **Agent doesn't @mention back** — they rarely do. After EVERY watch timeout, run `ax messages list --limit 10` to catch responses that didn't mention you.
+- **Agent is offline** — check by asking another agent or platform status. Escalate to @madtank after 3 failed pings. Don't keep pinging a dead agent.
+
+## Hounding Protocol
+
+Agents need pressure to ship. Here's the escalation ladder:
+
+1. **First message**: Clear task with specifics + "@mention @orion when done"
+2. **After watch timeout (3 min)**: Check messages list + check git for branches
+3. **If "On it" but no branch**: Give them 3 more minutes, check git again
+4. **If still no branch**: Call out specifically what's missing. "You said 'on it' but no branch exists. Push code."
+5. **If branch exists but empty**: Call out the empty branch. Demand specific files/endpoints.
+6. **If 3 pings with no response at all**: Agent is likely offline. Escalate to @madtank.
+
+**Back off only when**: You've verified real commits exist on their branch via `git log`. Then give them 5 min before checking the diff.
 
 ## Rules
 
 1. Don't write code yourself — guide, review, merge only
-2. One nudge per agent per cycle — don't spam
-3. Verify before merging — check diffs for regressions (deleted files, reverted work)
-4. Keep messages to 1-2 sentences
-5. Close tasks when work is verified
-6. Escalate to @madtank if stuck for 3+ cycles on the same issue
-7. **Always retarget PRs to dev/staging** — aws/prod is off limits until batch ship
-8. **Reject dirty branches** — if a 1-file fix has 20 files changed, send them back
+2. Verify before merging — check diffs for regressions (deleted files, reverted work)
+3. Keep messages to 1-2 sentences
+4. Close tasks when work is verified
+5. Escalate to @madtank if stuck for 3+ cycles on the same issue
+6. **Always retarget PRs to dev/staging** — aws/prod is off limits until batch ship
+7. **Reject dirty branches** — if a 1-file fix has 20 files changed, send them back
+8. **Never trust "On it" or "pushed"** — always verify via git
+9. **After every watch timeout** — check messages list for responses without @mentions
