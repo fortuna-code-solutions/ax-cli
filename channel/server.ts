@@ -1,0 +1,388 @@
+#!/usr/bin/env bun
+/**
+ * aX Channel for Claude Code.
+ *
+ * Bridges @mentions from the aX platform (next.paxai.app) into a running
+ * Claude Code session via the MCP channel protocol.
+ *
+ * Modeled on fakechat — uses the official MCP SDK with StdioServerTransport.
+ */
+
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { readFileSync } from "fs";
+
+// --- Config from env ---
+const TOKEN_FILE =
+  process.env.AX_TOKEN_FILE ?? `${process.env.HOME}/.ax/user_token`;
+const BASE_URL = process.env.AX_BASE_URL ?? "https://next.paxai.app";
+const AGENT_NAME = process.env.AX_AGENT_NAME ?? "relay";
+const AGENT_ID = process.env.AX_AGENT_ID ?? "";
+const SPACE_ID = process.env.AX_SPACE_ID ?? "";
+
+function loadToken(): string {
+  try {
+    return readFileSync(TOKEN_FILE, "utf-8").trim();
+  } catch {
+    throw new Error(`Cannot read token from ${TOKEN_FILE}`);
+  }
+}
+
+function log(msg: string) {
+  process.stderr.write(`[ax-channel] ${msg}\n`);
+}
+
+// --- JWT Exchange ---
+async function exchangeForJWT(pat: string): Promise<string> {
+  const resp = await fetch(`${BASE_URL}/auth/exchange`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${pat}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      requested_token_class: "user_access",
+      scope: "messages tasks context agents spaces",
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`JWT exchange failed (${resp.status}): ${text}`);
+  }
+  const data = (await resp.json()) as { access_token: string };
+  return data.access_token;
+}
+
+// --- Resolve agent_id from name ---
+async function resolveAgentId(
+  jwt: string,
+  name: string
+): Promise<string | null> {
+  try {
+    const resp = await fetch(`${BASE_URL}/api/v1/agents`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as
+      | { agents: { id: string; name: string }[] }
+      | { id: string; name: string }[];
+    const agents = Array.isArray(data) ? data : data.agents ?? [];
+    const match = agents.find(
+      (a) => a.name?.toLowerCase() === name.toLowerCase()
+    );
+    return match?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// --- Send message as agent ---
+async function sendMessage(
+  jwt: string,
+  agentId: string | null,
+  spaceId: string,
+  text: string,
+  parentId?: string
+): Promise<{ id?: string }> {
+  const body: Record<string, unknown> = {
+    content: text,
+    space_id: spaceId,
+    channel: "main",
+    message_type: "text",
+  };
+  if (parentId) body.parent_id = parentId;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${jwt}`,
+    "Content-Type": "application/json",
+  };
+  if (agentId) headers["X-Agent-Id"] = agentId;
+
+  const resp = await fetch(`${BASE_URL}/api/v1/messages`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`send failed (${resp.status}): ${errText.slice(0, 200)}`);
+  }
+  const data = (await resp.json()) as Record<string, unknown>;
+  const msg = (data.message as Record<string, unknown>) ?? data;
+  return { id: msg.id as string };
+}
+
+// --- SSE Listener ---
+function startSSE(
+  jwt: string,
+  agentName: string,
+  agentId: string | null,
+  onMention: (data: {
+    id: string;
+    content: string;
+    author: string;
+    parentId?: string;
+    ts?: string;
+  }) => void
+) {
+  const seen = new Set<string>();
+  let backoff = 1;
+
+  async function connect() {
+    while (true) {
+      try {
+        log(`SSE connecting...`);
+        const resp = await fetch(
+          `${BASE_URL}/api/sse/messages?token=${jwt}`
+        );
+
+        // Use a manual reader since EventSource isn't available in all envs
+        if (!resp.ok || !resp.body) {
+          throw new Error(`SSE failed: ${resp.status}`);
+        }
+
+        backoff = 1;
+        log(`SSE connected`);
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let eventType = "";
+        let dataLines: string[] = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataLines.push(line.slice(5).trim());
+            } else if (line === "") {
+              if (eventType && dataLines.length) {
+                const raw = dataLines.join("\n");
+                processEvent(eventType, raw);
+              }
+              eventType = "";
+              dataLines = [];
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") continue;
+        log(`SSE error: ${err}. Reconnecting in ${backoff}s...`);
+        await Bun.sleep(backoff * 1000);
+        backoff = Math.min(backoff * 2, 60);
+      }
+    }
+  }
+
+  function processEvent(type: string, raw: string) {
+    if (
+      ["bootstrap", "heartbeat", "ping", "connected", "identity_bootstrap"].includes(type)
+    ) {
+      return;
+    }
+    if (type !== "message" && type !== "mention") return;
+
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    const id = data.id as string;
+    if (!id || seen.has(id)) return;
+
+    const content = (data.content as string) ?? "";
+    if (!content.includes(`@${agentName}`)) return;
+
+    // Self-filter
+    const author = data.author as string | Record<string, unknown>;
+    let senderName = "";
+    let senderId = "";
+    if (typeof author === "object" && author) {
+      senderName = (author.name as string) ?? "";
+      senderId = (author.id as string) ?? "";
+    } else if (typeof author === "string") {
+      senderName = author;
+      senderId = (data.agent_id as string) ?? "";
+    } else {
+      senderName =
+        (data.display_name as string) ??
+        (data.sender_name as string) ??
+        "";
+      senderId = (data.agent_id as string) ?? "";
+    }
+
+    if (senderName.toLowerCase() === agentName.toLowerCase()) return;
+    if (agentId && senderId === agentId) return;
+
+    seen.add(id);
+    if (seen.size > 500) {
+      const arr = [...seen];
+      seen.clear();
+      for (const x of arr.slice(-250)) seen.add(x);
+    }
+
+    // Strip @mention prefix
+    const prompt = content
+      .replace(new RegExp(`@${agentName}\\b\\s*[-—]?\\s*`, "i"), "")
+      .trim();
+    if (!prompt) return;
+
+    log(`mention from ${senderName}: ${prompt.slice(0, 60)}`);
+    onMention({
+      id,
+      content: prompt,
+      author: senderName || "unknown",
+      parentId: data.parent_id as string | undefined,
+      ts: (data.timestamp as string) ?? (data.created_at as string),
+    });
+  }
+
+  // Don't await — run in background
+  connect().catch((err) => log(`SSE fatal: ${err}`));
+}
+
+// --- MCP Server ---
+const mcp = new Server(
+  { name: "ax-channel", version: "0.1.0" },
+  {
+    capabilities: { tools: {}, experimental: { "claude/channel": {} } },
+    instructions: `Messages from aX arrive via notifications/claude/channel. Your transcript is not sent back to aX automatically. Use the reply tool for every response you want posted back to aX. Pass reply_to to target a specific incoming aX message_id; if omitted, the latest inbound message is used.`,
+  }
+);
+
+let lastMessageId: string | null = null;
+let currentJwt: string = "";
+let resolvedAgentId: string | null = null;
+let jwtTime = 0;
+
+async function ensureJwt(): Promise<string> {
+  if (currentJwt && Date.now() - jwtTime < 10 * 60 * 1000) return currentJwt;
+  const pat = loadToken();
+  currentJwt = await exchangeForJWT(pat);
+  jwtTime = Date.now();
+  log("JWT refreshed");
+  return currentJwt;
+}
+
+mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "reply",
+      description:
+        "Reply to an aX channel message in-thread.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          text: {
+            type: "string",
+            description: "Message text to send back to aX.",
+          },
+          reply_to: {
+            type: "string",
+            description:
+              "aX message_id to reply to. Defaults to the latest inbound message.",
+          },
+        },
+        required: ["text"],
+      },
+    },
+  ],
+}));
+
+mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
+  const args = (req.params.arguments ?? {}) as Record<string, unknown>;
+  const name = req.params.name;
+
+  if (name !== "reply") {
+    return {
+      content: [{ type: "text" as const, text: `unknown tool: ${name}` }],
+      isError: true,
+    };
+  }
+
+  const text = String(args.text ?? "").trim();
+  const replyTo = (args.reply_to as string) ?? lastMessageId;
+
+  if (!text) {
+    return {
+      content: [{ type: "text" as const, text: "reply.text is required" }],
+      isError: true,
+    };
+  }
+
+  try {
+    const jwt = await ensureJwt();
+    const result = await sendMessage(
+      jwt,
+      resolvedAgentId,
+      SPACE_ID,
+      text,
+      replyTo ?? undefined
+    );
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `sent${replyTo ? ` reply to ${replyTo}` : ""}${result.id ? ` (${result.id})` : ""}`,
+        },
+      ],
+    };
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `reply failed: ${err instanceof Error ? err.message : err}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+});
+
+// --- Start ---
+await mcp.connect(new StdioServerTransport());
+
+// Initialize auth and SSE after MCP is connected
+const jwt = await ensureJwt();
+resolvedAgentId = AGENT_ID || (await resolveAgentId(jwt, AGENT_NAME));
+log(
+  `identity: @${AGENT_NAME}${resolvedAgentId ? ` (${resolvedAgentId.slice(0, 12)}...)` : ""}`
+);
+log(`space: ${SPACE_ID}`);
+log(`api: ${BASE_URL}`);
+
+startSSE(jwt, AGENT_NAME, resolvedAgentId, (mention) => {
+  lastMessageId = mention.id;
+  void mcp.notification({
+    method: "notifications/claude/channel",
+    params: {
+      content: mention.content,
+      meta: {
+        chat_id: SPACE_ID,
+        message_id: mention.id,
+        parent_id: mention.parentId ?? undefined,
+        user: mention.author,
+        sender: mention.author,
+        source: "ax",
+        space_id: SPACE_ID,
+        ts: mention.ts ?? new Date().toISOString(),
+      },
+    },
+  });
+  log(`delivered ${mention.id.slice(0, 12)} from ${mention.author}`);
+});

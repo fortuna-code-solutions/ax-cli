@@ -616,7 +616,7 @@ class AxClient:
     # --- SSE ---
 
     def connect_sse(self) -> httpx.Response:
-        """GET /api/v1/sse/messages — returns streaming response.
+        """GET /api/sse/messages — returns streaming response.
 
         Usage:
             with client.connect_sse() as resp:
@@ -624,10 +624,12 @@ class AxClient:
                     if line.startswith("data:"):
                         event = json.loads(line[5:])
         """
+        # Use JWT for SSE token param when exchange auth is available
+        sse_token = self._get_jwt() if self._exchanger else self.token
         return self._http.stream(
-            "GET", "/api/v1/sse/messages",
-            params={"token": self.token},
-            timeout=httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=10.0),
+            "GET", "/api/sse/messages",
+            params={"token": sse_token},
+            timeout=httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0),
         )
 
     def close(self):
