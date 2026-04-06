@@ -19,9 +19,12 @@ import { join } from "path";
 import { homedir } from "os";
 
 // --- PID file to prevent stale process accumulation ---
-const PID_FILE = join(homedir(), ".claude", "channels", "ax-channel", "server.pid");
+// Use agent name in PID file so multiple agents can run concurrently.
+// Falls back to "default" if AX_AGENT_NAME isn't set yet (resolved below).
+const _pidAgent = process.env["AX_AGENT_NAME"] || "default";
+const PID_FILE = join(homedir(), ".claude", "channels", "ax-channel", `server.${_pidAgent}.pid`);
 try {
-  // Kill any previous instance
+  // Kill any previous instance of the SAME agent
   if (existsSync(PID_FILE)) {
     const oldPid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
     if (oldPid && oldPid !== process.pid) {
@@ -315,6 +318,17 @@ function startSSE(
       const arr = [...seen];
       seen.clear();
       for (const x of arr.slice(-250)) seen.add(x);
+    }
+
+    // Track inbound message ID so replies to THIS message also reach us.
+    // This extends the reply chain: A(ours) → B(theirs,delivered) → C(reply to B, also delivered).
+    if (isReplyToUs) {
+      sentMessageIds.add(id);
+      if (sentMessageIds.size > SENT_MAX) {
+        const arr = [...sentMessageIds];
+        sentMessageIds.clear();
+        for (const x of arr.slice(-SENT_MAX / 2)) sentMessageIds.add(x);
+      }
     }
 
     // Skip Hermes runtime progress messages — these are for the frontend UI, not agent conversations.
