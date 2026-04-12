@@ -535,6 +535,7 @@ class AxClient:
     def create_key(self, name: str, *, allowed_agent_ids: list[str] | None = None) -> dict:
         body: dict = {"name": name}
         if allowed_agent_ids:
+            body["agent_scope"] = "agents"
             body["allowed_agent_ids"] = allowed_agent_ids
         r = self._http.post("/api/v1/keys", json=body)
         r.raise_for_status()
