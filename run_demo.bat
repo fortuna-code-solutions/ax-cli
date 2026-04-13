@@ -1,4 +1,5 @@
 @echo off
+set PYTHONIOENCODING=utf-8
 echo Starting fortuna-bot...
 echo Press Ctrl+C to stop.
 echo.
