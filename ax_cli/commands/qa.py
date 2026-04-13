@@ -208,28 +208,17 @@ def _resolve_env_space_id(client: AxClient, env_cfg: dict[str, Any], *, explicit
     raise typer.Exit(1)
 
 
-@app.command("contracts")
-def contracts(
-    env_name: Optional[str] = typer.Option(
-        None,
-        "--env",
-        help="Use a named user-login environment created with `axctl login --env`",
-    ),
-    space_id: Optional[str] = typer.Option(None, "--space-id", help="Override target space"),
-    limit: int = typer.Option(10, "--limit", help="Small collection read limit"),
-    write: bool = typer.Option(False, "--write", help="Run mutating round-trip checks"),
-    upload_file: Optional[str] = typer.Option(None, "--upload-file", help="Upload this file during write checks"),
-    send_message: bool = typer.Option(False, "--send-message", help="Send a visible QA message for upload checks"),
-    ttl: int = typer.Option(300, "--ttl", help="TTL for temporary context writes"),
-    cleanup: bool = typer.Option(True, "--cleanup/--keep", help="Delete temporary context keys after write checks"),
-    as_json: bool = JSON_OPTION,
-):
-    """Run API-first smoke checks against the active environment.
-
-    Default mode is read-only. Use --write when validating dev/staging flows
-    that create temporary context, upload files, or emit visible message
-    signals.
-    """
+def _run_contracts(
+    *,
+    env_name: str | None,
+    space_id: str | None,
+    limit: int,
+    write: bool,
+    upload_file: str | None,
+    send_message: bool,
+    ttl: int,
+    cleanup: bool,
+) -> dict[str, Any]:
     selected_env: str | None = None
     if env_name:
         client, env_cfg = _client_for_env(env_name)
@@ -367,18 +356,116 @@ def contracts(
         "artifacts": artifacts,
         "checks": checks,
     }
+    return result
 
+
+def _write_artifact(path: str | Path, result: dict[str, Any]) -> Path:
+    artifact_path = Path(path).expanduser().resolve()
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return artifact_path
+
+
+def _emit_result(result: dict[str, Any], *, as_json: bool, artifact_path: Path | None = None) -> None:
+    ok = bool(result.get("ok"))
     if as_json:
         print_json(result)
     else:
         console.print(f"[bold]aX contract smoke:[/bold] {'PASS' if ok else 'FAIL'}")
-        console.print(f"space_id={sid} mode={result['mode']}")
-        for check in checks:
+        console.print(f"space_id={result.get('space_id')} mode={result.get('mode')}")
+        for check in result.get("checks", []):
             status = "[green]PASS[/green]" if check["ok"] else "[red]FAIL[/red]"
             suffix = f" count={check['count']}" if "count" in check else ""
             console.print(f"  {status} {check['name']} ({check['duration_ms']}ms){suffix}")
             if not check["ok"]:
                 console.print(f"    [red]{check['error']}[/red]")
+        if artifact_path:
+            console.print(f"artifact={artifact_path}")
 
     if not ok:
         raise typer.Exit(1)
+
+
+@app.command("contracts")
+def contracts(
+    env_name: Optional[str] = typer.Option(
+        None,
+        "--env",
+        help="Use a named user-login environment created with `axctl login --env`",
+    ),
+    space_id: Optional[str] = typer.Option(None, "--space-id", help="Override target space"),
+    limit: int = typer.Option(10, "--limit", help="Small collection read limit"),
+    write: bool = typer.Option(False, "--write", help="Run mutating round-trip checks"),
+    upload_file: Optional[str] = typer.Option(None, "--upload-file", help="Upload this file during write checks"),
+    send_message: bool = typer.Option(False, "--send-message", help="Send a visible QA message for upload checks"),
+    ttl: int = typer.Option(300, "--ttl", help="TTL for temporary context writes"),
+    cleanup: bool = typer.Option(True, "--cleanup/--keep", help="Delete temporary context keys after write checks"),
+    as_json: bool = JSON_OPTION,
+):
+    """Run API-first smoke checks against the active environment.
+
+    Default mode is read-only. Use --write when validating dev/staging flows
+    that create temporary context, upload files, or emit visible message
+    signals.
+    """
+    result = _run_contracts(
+        env_name=env_name,
+        space_id=space_id,
+        limit=limit,
+        write=write,
+        upload_file=upload_file,
+        send_message=send_message,
+        ttl=ttl,
+        cleanup=cleanup,
+    )
+    _emit_result(result, as_json=as_json)
+
+
+@app.command("preflight")
+def preflight(
+    target: str = typer.Option(
+        "mcp-ui",
+        "--for",
+        help="Target being gated, e.g. mcp-jam, widget, playwright, ui",
+    ),
+    env_name: Optional[str] = typer.Option(
+        None,
+        "--env",
+        help="Use a named user-login environment created with `axctl login --env`",
+    ),
+    space_id: Optional[str] = typer.Option(None, "--space-id", help="Override target space"),
+    limit: int = typer.Option(10, "--limit", help="Small collection read limit"),
+    write: bool = typer.Option(False, "--write", help="Run mutating round-trip checks"),
+    upload_file: Optional[str] = typer.Option(None, "--upload-file", help="Upload this file during write checks"),
+    send_message: bool = typer.Option(False, "--send-message", help="Send a visible QA message for upload checks"),
+    ttl: int = typer.Option(300, "--ttl", help="TTL for temporary context writes"),
+    cleanup: bool = typer.Option(True, "--cleanup/--keep", help="Delete temporary context keys after write checks"),
+    artifact: Optional[str] = typer.Option(
+        None,
+        "--artifact",
+        help="Write the preflight result JSON to this path for CI/MCP/UI wrappers",
+    ),
+    as_json: bool = JSON_OPTION,
+):
+    """Gate MCP Jam, widget, or Playwright checks on API-first contracts."""
+    result = _run_contracts(
+        env_name=env_name,
+        space_id=space_id,
+        limit=limit,
+        write=write,
+        upload_file=upload_file,
+        send_message=send_message,
+        ttl=ttl,
+        cleanup=cleanup,
+    )
+    result["preflight"] = {
+        "target": target,
+        "passed": bool(result.get("ok")),
+        "generated_at_unix": int(time.time()),
+        "command": "ax qa preflight",
+    }
+    artifact_path = Path(artifact).expanduser().resolve() if artifact else None
+    if artifact_path:
+        result["preflight"]["artifact"] = str(artifact_path)
+        _write_artifact(artifact_path, result)
+    _emit_result(result, as_json=as_json, artifact_path=artifact_path)

@@ -250,6 +250,7 @@ Use `ax qa contracts` before MCP/UI debugging. It proves the active credential,
 space routing, and core API reads first.
 
 ```bash
+ax qa preflight --env dev --space-id <space-id> --for playwright --artifact .ax/qa/preflight.json
 ax qa contracts --env dev --space-id <space-id>
 ax qa contracts --env dev --write --space-id <space-id>
 ax qa contracts --env dev --write --upload-file ./probe.md --send-message --space-id <space-id>
@@ -259,6 +260,8 @@ Default mode is read-only. `--env` selects a named user login created by
 `axctl login --env <name>` and bypasses active agent profiles. `--write`
 creates temporary context and cleans it up by default. Upload checks attach
 context metadata to the message so other agents can discover the artifact.
+Use `ax qa preflight` as the gate before MCP Jam, widget, or Playwright checks;
+it runs the same contract suite and can write a JSON artifact for CI.
 
 ### Primitives
 

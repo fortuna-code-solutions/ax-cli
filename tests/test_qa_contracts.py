@@ -193,3 +193,42 @@ def test_contract_smoke_upload_can_emit_context_backed_message(monkeypatch, tmp_
     attachment = send_call[3][0]
     assert attachment["context_key"] == payload["artifacts"]["upload_context_key"]
     assert attachment["filename"] == "probe.md"
+
+
+def test_preflight_writes_ci_artifact(monkeypatch, tmp_path):
+    fake = FakeClient()
+    artifact = tmp_path / "preflight.json"
+    monkeypatch.setattr(
+        qa,
+        "_client_for_env",
+        lambda env_name: (
+            fake,
+            {
+                "environment": env_name,
+                "space_id": "dev-space",
+            },
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "qa",
+            "preflight",
+            "--env",
+            "dev",
+            "--for",
+            "playwright",
+            "--artifact",
+            str(artifact),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = _json_output(result)
+    saved = json.loads(artifact.read_text())
+    assert payload["ok"] is True
+    assert payload["preflight"]["target"] == "playwright"
+    assert payload["preflight"]["artifact"] == str(artifact.resolve())
+    assert saved == payload

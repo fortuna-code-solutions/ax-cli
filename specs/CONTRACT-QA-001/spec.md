@@ -30,6 +30,15 @@ When a widget fails, the first question should be:
 
 If the answer is no, the bug is below the widget layer.
 
+MCP Jam, widget, and Playwright workflows should start with:
+
+```bash
+axctl qa preflight --env dev --space-id <space-id> --for playwright --artifact .ax/qa/preflight.json
+```
+
+The preflight command runs the same contract suite as `contracts`, labels the
+downstream target, and can write a JSON artifact for CI or agent supervision.
+
 ## Harness Modes
 
 ### Read-only default
@@ -86,6 +95,24 @@ Write checks should use temporary keys and clean up by default.
 | Context write | `context.set/get/delete` | Proves user-authored context writes and cleanup. |
 | Upload | `uploads.create` + context metadata | Proves file storage and context backing. |
 | Message attachment | `messages.send(attachments)` | Proves humans/agents can discover uploaded artifacts. |
+
+## Preflight Artifact
+
+`axctl qa preflight --artifact <path>` writes the full result envelope to JSON.
+
+The artifact includes:
+
+- `ok`
+- `environment`
+- `space_id`
+- `principal`
+- `checks`
+- `preflight.target`
+- `preflight.passed`
+- `preflight.generated_at_unix`
+
+Downstream MCP Jam, widget, and Playwright scripts should refuse to run when the
+preflight artifact is missing or `ok` is false.
 
 ## Identity Expectations
 
@@ -153,6 +180,8 @@ For example:
 
 - Read-only harness exits `0` only when all read contracts pass.
 - Failed checks include HTTP status, URL, and backend detail when available.
+- `preflight` exits `0` only when the contract suite passes.
+- `preflight --artifact` writes a reusable JSON gate for MCP/UI wrappers.
 - Write mode creates temporary context, verifies it, and deletes it by default.
 - Upload mode includes a context key in message attachment metadata.
 - JSON output is stable enough for CI and agent supervision.
