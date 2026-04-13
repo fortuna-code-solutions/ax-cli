@@ -31,15 +31,48 @@ _EXT_MIME: dict[str, str] = {
     ".gif": "image/gif",
     ".webp": "image/webp",
     ".txt": "text/plain",
+    ".py": "text/x-python",
+    ".js": "text/javascript",
+    ".jsx": "text/javascript",
+    ".ts": "text/typescript",
+    ".tsx": "text/typescript",
+    # The upload API intentionally keeps a narrow MIME allowlist. Normalize
+    # common source/config artifacts to inert text so CLI uploads work without
+    # expanding backend policy for every language-specific MIME type.
+    ".java": "text/plain",
+    ".go": "text/plain",
+    ".rs": "text/plain",
+    ".kt": "text/plain",
+    ".kts": "text/plain",
+    ".c": "text/plain",
+    ".cc": "text/plain",
+    ".cpp": "text/plain",
+    ".cs": "text/plain",
+    ".rb": "text/plain",
+    ".sh": "text/plain",
+    ".css": "text/plain",
+    ".xml": "text/plain",
+    ".yaml": "text/plain",
+    ".yml": "text/plain",
+    ".sql": "text/plain",
+    ".svg": "image/svg+xml",
     ".doc": "application/msword",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".xls": "application/vnd.ms-excel",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
+_FILENAME_MIME: dict[str, str] = {
+    "dockerfile": "text/plain",
+    "makefile": "text/plain",
+}
 
 
 def _mime_from_ext(ext: str) -> str | None:
     return _EXT_MIME.get(ext)
+
+
+def _mime_from_filename(filename: str) -> str | None:
+    return _FILENAME_MIME.get(filename.lower())
 
 
 def _build_fingerprint(token: str) -> dict[str, str]:
@@ -168,11 +201,33 @@ class _RetryOnAuthClient:
         self._inner.close()
 
 
+def _block_user_token(context: str) -> None:
+    """Hard-block user tokens when they are mixed with agent identity config.
+
+    User PATs exchange to user JWTs and can operate as the user. They must not
+    be used from an agent profile, because that makes an agent appear to act
+    with the user's identity.
+    """
+    import sys
+
+    sys.stderr.write(
+        f"\n\033[31m✗  Blocked: user token (axp_u_) cannot be used for: {context}\033[0m\n"
+        "   User PATs exchange to user JWTs and act as the user.\n"
+        "   Agent profiles need an agent PAT so actions are attributed to the agent.\n"
+        "   Get an agent token first:\n"
+        "     ax token mint <agent-name> --create      # mint agent PAT (requires user PAT)\n"
+        "\n"
+    )
+    sys.stderr.flush()
+    raise SystemExit(1)
+
+
 class AxClient:
     def __init__(self, base_url: str, token: str, *, agent_name: str | None = None, agent_id: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.agent_id = agent_id  # Used for exchange parameters, NOT headers (§13)
+        self.agent_name = agent_name
 
         # Check for honeypot keys before doing anything else
         _check_honeypot(token, self.base_url)
@@ -216,6 +271,10 @@ class AxClient:
         - axp_a_ (agent-bound PAT) + agent_id → agent_access
         - axp_u_ (user PAT) → user_access always, even if agent_id is set
           (user PATs cannot exchange for agent_access — server returns 422)
+
+        User PATs are valid for explicit user-authored CLI work and bootstrap,
+        but they must not be combined with agent identity config. That mix is
+        how an agent accidentally speaks as the user.
         """
         is_agent_pat = self.token.startswith("axp_a_")
         if self.agent_id and is_agent_pat:
@@ -225,6 +284,8 @@ class AxClient:
                 scope="messages tasks context agents spaces search",
                 force_refresh=force_refresh,
             )
+        if self.token.startswith("axp_u_") and (self.agent_id or self.agent_name):
+            _block_user_token("user PAT with agent identity configured")
         return self._exchanger.get_token(
             "user_access",
             scope="messages tasks context agents spaces search",
@@ -265,7 +326,7 @@ class AxClient:
             headers["X-Agent-Id"] = agent_id
         return headers
 
-    def _parse_json(self, r: httpx.Response) -> dict:
+    def _parse_json(self, r: httpx.Response) -> dict | list[dict]:
         """Parse JSON response, raising a clear error if HTML is returned."""
         content_type = r.headers.get("content-type", "")
         if "text/html" in content_type or r.text.lstrip().startswith("<!"):
@@ -275,6 +336,34 @@ class AxClient:
                 response=r,
             )
         return r.json()
+
+    def _is_management_route_miss(self, r: httpx.Response) -> bool:
+        """Return true when a deploy/proxy missed a management route.
+
+        Some environments expose agent management at /api/v1/agents/manage/*,
+        while older/local mounts expose /agents/manage/*. Fall back only for
+        route-shape misses; authz/authn failures must remain visible.
+        """
+        content_type = r.headers.get("content-type", "")
+        if "text/html" in content_type or r.text.lstrip().startswith("<!"):
+            return True
+        return r.status_code in {404, 405}
+
+    def _management_json_with_fallback(self, method: str, paths: list[str], **kwargs) -> dict | list[dict]:
+        """Request JSON from the first live management route in paths."""
+        last_response: httpx.Response | None = None
+        for path in paths:
+            r = getattr(self._http, method)(path, **kwargs)
+            if self._is_management_route_miss(r):
+                last_response = r
+                continue
+            r.raise_for_status()
+            return self._parse_json(r)
+
+        if last_response is None:
+            raise RuntimeError("No management route paths provided")
+        last_response.raise_for_status()
+        return self._parse_json(last_response)
 
     # --- Identity ---
 
@@ -333,7 +422,7 @@ class AxClient:
         r.raise_for_status()
         return self._parse_json(r)
 
-    def upload_file(self, file_path: str) -> dict:
+    def upload_file(self, file_path: str, *, space_id: str | None = None) -> dict:
         """POST /api/v1/uploads — upload a local file.
 
         Uses a separate httpx client to avoid sending Content-Type: application/json
@@ -344,7 +433,10 @@ class AxClient:
             raise FileNotFoundError(f"File not found: {file_path}")
 
         content_type = (
-            _mime_from_ext(path.suffix.lower()) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            _mime_from_filename(path.name)
+            or _mime_from_ext(path.suffix.lower())
+            or mimetypes.guess_type(path.name)[0]
+            or "application/octet-stream"
         )
         headers = {k: v for k, v in self._auth_headers().items() if k != "Content-Type"}
 
@@ -358,6 +450,7 @@ class AxClient:
                 r = upload_http.post(
                     "/api/v1/uploads/",
                     files={"file": (path.name, fh, content_type)},
+                    data={"space_id": space_id} if space_id else None,
                 )
         r.raise_for_status()
         return self._parse_json(r)
@@ -403,12 +496,15 @@ class AxClient:
         *,
         description: str | None = None,
         priority: str = "medium",
+        assignee_id: str | None = None,
         agent_id: str | None = None,
     ) -> dict:
         """POST /api/v1/tasks — explicit space_id required."""
         body = {"title": title, "space_id": space_id, "priority": priority}
         if description:
             body["description"] = description
+        if assignee_id:
+            body["assignee_id"] = assignee_id
         r = self._http.post("/api/v1/tasks", json=body, headers=self._with_agent(agent_id))
         r.raise_for_status()
         return self._parse_json(r)
@@ -499,6 +595,22 @@ class AxClient:
         r.raise_for_status()
         return self._parse_json(r)
 
+    def promote_context(
+        self,
+        space_id: str,
+        key: str,
+        *,
+        artifact_type: str = "RESEARCH",
+        agent_id: str | None = None,
+    ) -> dict:
+        """POST /api/v1/spaces/{space_id}/intelligence/promote for an existing context key."""
+        body = {"key": key, "artifact_type": artifact_type}
+        if agent_id:
+            body["agent_id"] = agent_id
+        r = self._http.post(f"/api/v1/spaces/{space_id}/intelligence/promote", json=body)
+        r.raise_for_status()
+        return self._parse_json(r)
+
     def get_context(self, key: str, *, space_id: str | None = None) -> dict:
         params = {"space_id": space_id} if space_id else None
         r = self._http.get(f"/api/v1/context/{quote(key, safe='')}", params=params)
@@ -567,20 +679,25 @@ class AxClient:
         return {**self._base_headers, "Authorization": f"Bearer {jwt}"}
 
     def mgmt_create_agent(self, name: str, **kwargs) -> dict:
-        """POST /agents/manage/create — requires user_admin + agents.create."""
+        """Create an agent — requires user_admin + agents.create."""
         body: dict = {"name": name}
         for k in ("description", "system_prompt", "model", "space_id"):
             if k in kwargs and kwargs[k] is not None:
                 body[k] = kwargs[k]
-        r = self._http.post("/agents/manage/create", json=body, headers=self._admin_headers("agents.create"))
-        r.raise_for_status()
-        return self._parse_json(r)
+        return self._management_json_with_fallback(
+            "post",
+            ["/api/v1/agents/manage/create", "/agents/manage/create"],
+            json=body,
+            headers=self._admin_headers("agents.create"),
+        )
 
     def mgmt_list_agents(self) -> list[dict]:
-        """GET /agents/manage/list — requires user_admin + agents.create."""
-        r = self._http.get("/agents/manage/list", headers=self._admin_headers("agents.create"))
-        r.raise_for_status()
-        return self._parse_json(r)
+        """List manageable agents — requires user_admin + agents.create."""
+        return self._management_json_with_fallback(
+            "get",
+            ["/api/v1/agents/manage/list", "/agents/manage/list"],
+            headers=self._admin_headers("agents.create"),
+        )
 
     def mgmt_update_agent(self, agent_id: str, **fields) -> dict:
         """PATCH /agents/manage/{id} — requires user_admin + agents.create."""

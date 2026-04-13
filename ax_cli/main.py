@@ -8,15 +8,16 @@ import typer
 
 from .commands import (
     agents,
-    assign,
     auth,
     channel,
     context,
     credentials,
     events,
+    handoff,
     keys,
     listen,
     messages,
+    mint,
     profile,
     spaces,
     tasks,
@@ -37,14 +38,10 @@ app.add_typer(context.app, name="context")
 app.add_typer(watch.app, name="watch")
 app.add_typer(upload.app, name="upload")
 app.add_typer(profile.app, name="profile")
-app.add_typer(assign.app, name="assign")
 app.add_typer(spaces.app, name="spaces")
 app.add_typer(channel.app, name="channel")
-
-# Work management aliases — same engine, different intent
-app.add_typer(assign.app, name="ship", help="Ship work through an agent")
-app.add_typer(assign.app, name="manage", help="Manage an agent's task to completion")
-app.add_typer(assign.app, name="boss", help="Boss an agent until they deliver")
+app.add_typer(mint.app, name="token")
+app.command("handoff")(handoff.run)
 
 
 @app.command("login")
@@ -63,7 +60,7 @@ def send_shortcut(
     content: str = typer.Argument(..., help="Message to send"),
     wait: bool = typer.Option(True, "--wait/--skip-ax", "-w", help="Wait for aX response (default: yes)"),
     timeout: int = typer.Option(60, "--timeout", "-t", help="Max seconds to wait"),
-    reply_to: Optional[str] = typer.Option(None, "--reply-to", "-r", help="Reply to message ID (thread)"),
+    reply_to: Optional[str] = typer.Option(None, "--reply-to", "--parent", "-r", help="Reply to message ID (thread)"),
     to: Optional[str] = typer.Option(None, "--to", help="@mention another agent by name"),
     act_as: Optional[str] = typer.Option(
         None, "--act-as", help="Impersonate: send as a different agent. Requires scoped token."

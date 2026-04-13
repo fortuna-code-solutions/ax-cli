@@ -20,7 +20,7 @@ import typer
 
 from ..config import get_client, resolve_agent_name, resolve_space_id
 from ..output import console
-from .listen import _iter_sse, _should_respond, _strip_mention
+from .listen import _is_self_authored, _iter_sse, _remember_reply_anchor, _should_respond, _strip_mention
 
 app = typer.Typer(name="channel", help="Run an aX Claude Code channel over MCP stdio", no_args_is_help=False)
 
@@ -34,11 +34,13 @@ SEEN_MAX = 500
 class MentionEvent:
     message_id: str
     parent_id: str | None
+    conversation_id: str | None
     author: str
     prompt: str
     raw_content: str
     created_at: str | None
     space_id: str
+    attachments: list[dict[str, Any]] | None = None
 
 
 class ChannelBridge:
@@ -64,6 +66,7 @@ class ChannelBridge:
         self._stderr_lock = threading.Lock()
         self._write_lock = asyncio.Lock()
         self._last_message_id: str | None = None
+        self._reply_anchor_ids: set[str] = set()
 
     def log(self, message: str) -> None:
         if not self.debug:
@@ -114,21 +117,25 @@ class ChannelBridge:
                 self.log("emit_mentions: initialized done, sending notification")
 
                 self._last_message_id = event.message_id
+                meta: dict[str, Any] = {
+                    "chat_id": event.space_id,
+                    "message_id": event.message_id,
+                    "parent_id": event.parent_id,
+                    "conversation_id": event.conversation_id,
+                    "user": event.author,
+                    "sender": event.author,
+                    "source": "ax",
+                    "space_id": event.space_id,
+                    "ts": event.created_at,
+                    "raw_content": event.raw_content,
+                }
+                if event.attachments:
+                    meta["attachments"] = event.attachments
                 await self.send_notification(
                     "notifications/claude/channel",
                     {
                         "content": event.prompt,
-                        "meta": {
-                            "chat_id": event.space_id,
-                            "message_id": event.message_id,
-                            "parent_id": event.parent_id,
-                            "user": event.author,
-                            "sender": event.author,
-                            "source": "ax",
-                            "space_id": event.space_id,
-                            "ts": event.created_at,
-                            "raw_content": event.raw_content,
-                        },
+                        "meta": meta,
                     },
                 )
                 self.log(f"delivered mention {event.message_id} from {event.author}")
@@ -234,6 +241,7 @@ class ChannelBridge:
             data = await asyncio.to_thread(_send_as_agent)
             message = data.get("message", data)
             sent_id = message.get("id") or data.get("id")
+            _remember_reply_anchor(self._reply_anchor_ids, sent_id)
             await self.send_response(
                 request_id,
                 {
@@ -358,7 +366,17 @@ def _sse_loop(bridge: ChannelBridge) -> None:
                     if not message_id or message_id in seen_ids:
                         bridge.log("  -> skip: dup or no id")
                         continue
-                    if not _should_respond(data, bridge.agent_name, bridge.agent_id):
+                    if _is_self_authored(data, bridge.agent_name, bridge.agent_id):
+                        _remember_reply_anchor(bridge._reply_anchor_ids, message_id)
+                        seen_ids.add(message_id)
+                        bridge.log("  -> skip self-authored, remembered as reply anchor")
+                        continue
+                    if not _should_respond(
+                        data,
+                        bridge.agent_name,
+                        bridge.agent_id,
+                        reply_anchor_ids=bridge._reply_anchor_ids,
+                    ):
                         bridge.log(f"  -> skip: not for @{bridge.agent_name}")
                         continue
                     bridge.log("  -> MATCH! delivering")
@@ -370,6 +388,7 @@ def _sse_loop(bridge: ChannelBridge) -> None:
                     seen_ids.add(message_id)
                     if len(seen_ids) > SEEN_MAX:
                         seen_ids = set(list(seen_ids)[-SEEN_MAX // 2 :])
+                    _remember_reply_anchor(bridge._reply_anchor_ids, message_id)
 
                     author_raw = data.get("author")
                     if isinstance(author_raw, dict):
@@ -381,15 +400,46 @@ def _sse_loop(bridge: ChannelBridge) -> None:
                             or data.get("sender_name")
                             or (author_raw if isinstance(author_raw, str) else "unknown")
                         )
+
+                    # Extract attachment metadata.  SSE events often omit
+                    # the full metadata.attachments that the REST API returns,
+                    # so we first check the SSE payload and fall back to a
+                    # lightweight GET /messages/{id} call when needed.
+                    attachments = None
+                    msg_metadata = data.get("metadata") or {}
+                    if isinstance(msg_metadata, dict):
+                        raw_attachments = msg_metadata.get("attachments") or msg_metadata.get("accepted_attachments")
+                        if raw_attachments and isinstance(raw_attachments, list):
+                            attachments = raw_attachments
+                    if not attachments:
+                        raw_top = data.get("attachments")
+                        if raw_top and isinstance(raw_top, list):
+                            attachments = raw_top
+                    # Fallback: fetch full message from REST API to get attachments
+                    if not attachments and message_id:
+                        try:
+                            full_msg = bridge.client.get_message(message_id)
+                            if isinstance(full_msg, dict):
+                                full_msg = full_msg.get("message", full_msg)
+                            full_meta = (full_msg or {}).get("metadata") or {}
+                            api_attachments = full_meta.get("attachments") or full_meta.get("accepted_attachments")
+                            if api_attachments and isinstance(api_attachments, list):
+                                attachments = api_attachments
+                                bridge.log(f"  fetched {len(attachments)} attachment(s) from REST API")
+                        except Exception as exc:
+                            bridge.log(f"  attachment fetch failed: {exc}")
+
                     bridge.enqueue_from_thread(
                         MentionEvent(
                             message_id=message_id,
                             parent_id=data.get("parent_id"),
+                            conversation_id=data.get("conversation_id"),
                             author=author,
                             prompt=prompt,
                             raw_content=data.get("content", ""),
                             created_at=data.get("created_at"),
                             space_id=bridge.space_id,
+                            attachments=attachments,
                         )
                     )
         except (httpx.ConnectError, httpx.ReadTimeout, ConnectionError) as exc:

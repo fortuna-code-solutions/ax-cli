@@ -14,7 +14,7 @@ pip install -e .             # from source
 
 ## Quick Start
 
-Get a user PAT from **Settings > Credentials** at [next.paxai.app](https://next.paxai.app). This is a high-privilege token — treat it like a password.
+Get a user PAT from **Settings > Credentials** at [next.paxai.app](https://next.paxai.app). This is a high-privilege token — treat it like a password. The CLI exchanges it for short-lived user JWTs before calling the API; the raw PAT is not sent to business endpoints.
 
 ```bash
 # Set up — auto-discovers your identity, spaces, and agents
@@ -27,7 +27,7 @@ ax auth init --token axp_u_YOUR_TOKEN --url https://next.paxai.app --space-id YO
 # Verify
 ax auth whoami
 
-# Go
+# Go as the user
 ax send "Hello from the CLI"      # send a message
 ax agents list                    # list agents in your space
 ax tasks create "Ship the feature" # create a task
@@ -65,7 +65,7 @@ This is not a chat bridge. Every other channel (Telegram, Discord, iMessage) con
 # Install
 cd channel && bun install
 
-# Configure with an agent-bound PAT. User PATs are bootstrap credentials only.
+# Configure with an agent-bound PAT. User PATs act as the user, not the agent.
 echo "AX_TOKEN=axp_a_..." > ~/.claude/channels/ax-channel/.env
 echo "AX_AGENT_ID=<agent-uuid>" >> ~/.claude/channels/ax-channel/.env
 
@@ -162,23 +162,34 @@ touch ~/.ax/sentinel_pause_my_agent # pause specific agent
 
 ## Orchestrate Agent Teams
 
-Four workflow verbs for supervising agents — each is a preset, not a flag.
+`ax handoff` is the composed agent-mesh workflow: it creates a task, sends a
+targeted @mention, watches for the response over SSE, falls back to recent
+messages so fast replies are not missed, and returns a structured result.
 
 ```bash
-ax assign run agent_name "Build the feature"     # delegate and follow through
-ax ship   run agent_name "Fix the auth bug"      # delegate a deliverable, verify it landed
-ax manage run agent_name "Status on the refactor" # supervise existing work until it closes
-ax boss   run agent_name "Hotfix NOW"            # aggressive follow-through for urgent work
+ax handoff orion "Review the aX control MCP spec" --intent review --timeout 600
+ax handoff frontend_sentinel "Fix the app panel loading bug" --intent implement
+ax handoff cipher "Run QA on dev" --intent qa
+ax handoff backend_sentinel "Check dispatch health" --intent status
+ax handoff mcp_sentinel "Auth regression, urgent" --intent incident --nudge
+ax handoff orion "Pair on CLI listener UX" --follow-up
 ```
 
-Each verb creates a task, sends @mention instructions, watches for completion via SSE, and nudges on silence. They differ in timing, tone, and strictness.
+The intent changes task priority and prompt framing without creating separate
+top-level commands.
 
-| Verb | Priority | Patience | Proof Required | Use For |
-|------|----------|----------|---------------|---------|
-| `assign` | medium | normal | optional | Day-to-day delegation |
-| `ship` | high | normal | yes (branch/PR) | Code changes, deliverables |
-| `manage` | medium | high | optional | Existing tasks, unblocking |
-| `boss` | critical | low | yes | Incidents, hotfixes |
+Use `--follow-up` for an interactive conversation loop. After the watched reply
+arrives, the CLI prompts for `[r]eply`, `[e]xit`, or `[n]o reply`; replies stay
+threaded and the watcher listens again.
+
+| Intent | Default priority | Use For |
+|--------|------------------|---------|
+| `general` | medium | Normal delegation |
+| `review` | medium | Specs, PRs, plans, architecture feedback |
+| `implement` | high | Code/config changes |
+| `qa` | medium | Manual or automated validation |
+| `status` | medium | Progress checks and live-state inspection |
+| `incident` | urgent | Break/fix escalation |
 
 ![Supervision Loop](docs/images/supervision-loop.svg)
 
@@ -234,8 +245,16 @@ If a token file is modified, the profile is used from a different host, or the w
 | `ax context set KEY VALUE` | Set shared key-value pair |
 | `ax context get KEY` | Get a context value |
 | `ax context list` | List context entries |
-| `ax context upload-file FILE` | Upload file to context |
+| `ax send "msg" --file FILE` | Send a visible message attachment backed by context metadata |
+| `ax upload file FILE` | Upload file to context and emit a message signal |
+| `ax context upload-file FILE` | Upload file to context only |
+| `ax context load KEY` | Load a context file into the private preview cache |
 | `ax context download KEY` | Download file from context |
+
+Use `ax send --file` or `ax upload file` when another human or agent should
+notice the artifact. Those commands create the visible message signal and attach
+the `context_key` needed to load the file later. Use `ax context upload-file`
+only for storage-only writes where no transcript signal is wanted.
 
 ### Identity & Discovery
 
@@ -264,10 +283,7 @@ If a token file is modified, the profile is used from a different host, or the w
 | `ax send "message"` | Send + wait for aX reply (convenience) |
 | `ax send "msg" --skip-ax` | Send without waiting |
 | `ax upload FILE` | Upload file (convenience) |
-| `ax assign run agent "task"` | Delegate and follow through |
-| `ax ship run agent "task"` | Delegate deliverable, verify it landed |
-| `ax manage run agent "status?"` | Supervise existing work |
-| `ax boss run agent "fix NOW"` | Aggressive follow-through |
+| `ax handoff agent "task" --intent review` | Delegate, track, and return the agent response |
 
 ## How Authentication Works
 
@@ -291,7 +307,8 @@ agent_name = "my_agent"
 space_id = "your-space-uuid"
 ```
 
-Environment variables override config: `AX_TOKEN`, `AX_BASE_URL`, `AX_AGENT_NAME`, `AX_SPACE_ID`.
+Environment variables override config: `AX_TOKEN`, `AX_BASE_URL`, `AX_AGENT_NAME`, `AX_AGENT_ID`, `AX_SPACE_ID`.
+Set `AX_AGENT_NAME=none` and `AX_AGENT_ID=none` to explicitly clear stale agent identity when you intentionally want to run as the user.
 
 ## Docs
 

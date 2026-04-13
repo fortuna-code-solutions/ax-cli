@@ -1,16 +1,12 @@
 """Tests for config resolution — the cascade that burned us (2026-04-05)."""
-import os
 from pathlib import Path
-
-import pytest
 
 from ax_cli.config import (
     _find_project_root,
     _global_config_dir,
     _load_config,
-    _load_global_config,
-    _load_local_config,
     resolve_agent_id,
+    resolve_agent_name,
     resolve_base_url,
     resolve_token,
 )
@@ -22,12 +18,15 @@ class TestFindProjectRoot:
         monkeypatch.chdir(tmp_path)
         assert _find_project_root() == tmp_path
 
-    def test_finds_git_dir(self, tmp_path, monkeypatch):
+    def test_ignores_git_dir(self, tmp_path, monkeypatch):
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
-        assert _find_project_root() == tmp_path
+        result = _find_project_root()
+        assert result != tmp_path
+        if result is not None:
+            assert (result / ".ax").is_dir()
 
-    def test_prefers_ax_over_git(self, tmp_path, monkeypatch):
+    def test_finds_ax_even_when_git_exists(self, tmp_path, monkeypatch):
         (tmp_path / ".ax").mkdir()
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
@@ -48,9 +47,9 @@ class TestFindProjectRoot:
         # May find something up the tree depending on environment,
         # but in an isolated tmp_path it should be None
         result = _find_project_root()
-        # If no .ax or .git anywhere up the tree
+        # If no .ax anywhere up the tree
         if result is not None:
-            assert (result / ".ax").is_dir() or (result / ".git").exists()
+            assert (result / ".ax").is_dir()
 
 
 class TestGlobalConfigDir:
@@ -124,6 +123,33 @@ class TestResolveAgentId:
     def test_returns_none_when_not_set(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         assert resolve_agent_id() is None
+
+
+class TestResolveAgentName:
+    def test_env_var_wins(self, monkeypatch):
+        monkeypatch.setenv("AX_AGENT_NAME", "env-agent")
+        assert resolve_agent_name() == "env-agent"
+
+    def test_env_none_clears(self, monkeypatch):
+        monkeypatch.setenv("AX_AGENT_NAME", "none")
+        assert resolve_agent_name() is None
+
+    def test_env_empty_clears(self, monkeypatch):
+        monkeypatch.setenv("AX_AGENT_NAME", "")
+        assert resolve_agent_name() is None
+
+    def test_env_null_clears(self, monkeypatch):
+        monkeypatch.setenv("AX_AGENT_NAME", "null")
+        assert resolve_agent_name() is None
+
+    def test_falls_back_to_config(self, tmp_path, monkeypatch, write_config):
+        write_config(agent_name="config-agent")
+        monkeypatch.chdir(tmp_path)
+        assert resolve_agent_name() == "config-agent"
+
+    def test_returns_none_when_not_set(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert resolve_agent_name() is None
 
 
 class TestResolveToken:

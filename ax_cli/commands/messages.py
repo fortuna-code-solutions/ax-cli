@@ -1,12 +1,15 @@
 """ax messages — send, list, get, edit, delete, search."""
 
+import json
 import time
+from pathlib import Path
 from typing import Optional
 
 import httpx
 import typer
 
 from ..config import get_client, resolve_agent_name, resolve_space_id
+from ..context_keys import build_upload_context_key
 from ..output import JSON_OPTION, console, handle_error, print_json, print_kv, print_table
 
 app = typer.Typer(name="messages", help="Message operations", no_args_is_help=True)
@@ -95,6 +98,94 @@ def _wait_for_reply(client, message_id: str, timeout: int = 60) -> dict | None:
     )
 
 
+def _message_items(data) -> list[dict]:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return data.get("messages", [])
+    return []
+
+
+def _resolve_message_id(client, message_id: str) -> str:
+    """Resolve table-friendly short message IDs against recent messages."""
+    candidate = message_id.strip()
+    if not candidate or "-" in candidate or len(candidate) >= 32:
+        return candidate
+
+    data = client.list_messages(limit=100)
+    matches = [
+        str(message.get("id") or "")
+        for message in _message_items(data)
+        if str(message.get("id") or "").startswith(candidate)
+    ]
+    matches = [match for match in matches if match]
+
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        typer.echo(
+            f"Error: message ID prefix '{candidate}' is ambiguous. Use the full ID from --json.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return candidate
+
+
+def _attachment_ref(
+    *,
+    attachment_id: str,
+    content_type: str,
+    filename: str,
+    size: int,
+    url: str,
+    context_key: str | None,
+) -> dict:
+    ref = {
+        "id": attachment_id,
+        "filename": filename,
+        "content_type": content_type,
+        "size": size,
+        "size_bytes": size,
+        "url": url,
+        "kind": "file",
+    }
+    if context_key:
+        ref["context_key"] = context_key
+    return ref
+
+
+def _context_upload_value(
+    *,
+    attachment_id: str,
+    context_key: str,
+    filename: str,
+    content_type: str,
+    size: int,
+    url: str,
+    local_path: Path,
+) -> dict:
+    value = {
+        "type": "file_upload",
+        "attachment_id": attachment_id,
+        "context_key": context_key,
+        "filename": filename,
+        "content_type": content_type,
+        "size": size,
+        "url": url,
+        "source": "message_attachment",
+    }
+
+    if size <= 50_000 and (
+        content_type.startswith("text/") or content_type in {"application/json", "application/xml", "application/yaml"}
+    ):
+        try:
+            value["content"] = local_path.read_text(errors="replace")
+        except Exception:
+            pass
+
+    return value
+
+
 @app.command("send")
 def send(
     content: str = typer.Argument(..., help="Message content"),
@@ -169,24 +260,63 @@ def send(
     # --file: upload files and collect attachment metadata
     attachments = []
     for file_path in files or []:
+        local_path = Path(file_path).expanduser().resolve()
         try:
-            upload_data = client.upload_file(file_path)
+            upload_data = client.upload_file(str(local_path), space_id=sid)
         except FileNotFoundError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(1) from exc
         except httpx.HTTPStatusError as exc:
             handle_error(exc)
         # Normalize upload response into attachment reference
-        att = upload_data.get("attachment", upload_data)
+        raw_attachment = upload_data.get("attachment", upload_data)
+        attachment_id = (
+            raw_attachment.get("id")
+            or raw_attachment.get("attachment_id")
+            or raw_attachment.get("file_id")
+            or upload_data.get("id")
+            or ""
+        )
+        filename = (
+            raw_attachment.get("original_filename")
+            or raw_attachment.get("filename")
+            or raw_attachment.get("name")
+            or local_path.name
+        )
+        content_type = raw_attachment.get("content_type") or "application/octet-stream"
+        size = int(raw_attachment.get("size_bytes") or raw_attachment.get("size") or 0)
+        url = raw_attachment.get("url") or ""
+        context_key = build_upload_context_key(filename, attachment_id)
+
+        try:
+            client.set_context(
+                sid,
+                context_key,
+                json.dumps(
+                    _context_upload_value(
+                        attachment_id=attachment_id,
+                        context_key=context_key,
+                        filename=filename,
+                        content_type=content_type,
+                        size=size,
+                        url=url,
+                        local_path=local_path,
+                    )
+                ),
+            )
+        except httpx.HTTPStatusError:
+            context_key = None
+            console.print(f"  [yellow]Warning: uploaded {filename}, but context storage failed[/yellow]")
+
         attachments.append(
-            {
-                "id": att.get("id") or att.get("file_id") or upload_data.get("id"),
-                "filename": att.get("original_filename") or att.get("filename") or att.get("name"),
-                "content_type": att.get("content_type"),
-                "size": att.get("size_bytes") or att.get("size"),
-                "url": att.get("url"),
-                "kind": "file",
-            }
+            _attachment_ref(
+                attachment_id=attachment_id,
+                filename=filename,
+                content_type=content_type,
+                size=size,
+                url=url,
+                context_key=context_key,
+            )
         )
         console.print(f"  [dim]Uploaded: {attachments[-1]['filename']}[/dim]")
 
@@ -197,11 +327,12 @@ def send(
         final_content = f"{mention} {content}"
 
     try:
+        parent_id = _resolve_message_id(client, parent) if parent else None
         data = client.send_message(
             sid,
             final_content,
             channel=channel,
-            parent_id=parent,
+            parent_id=parent_id,
             attachments=attachments or None,
         )
     except httpx.HTTPStatusError as e:
@@ -244,7 +375,7 @@ def list_messages(
         data = client.list_messages(limit=limit, channel=channel)
     except httpx.HTTPStatusError as e:
         handle_error(e)
-    messages = data if isinstance(data, list) else data.get("messages", [])
+    messages = _message_items(data)
     if as_json:
         print_json(messages)
     else:
@@ -252,10 +383,12 @@ def list_messages(
             c = str(m.get("content", ""))
             m["content_short"] = c[:60] + "..." if len(c) > 60 else c
             m["sender"] = m.get("display_name") or m.get("sender_handle") or m.get("sender_type", "")
+            full_id = str(m.get("id", ""))
+            m["short_id"] = full_id[:8] if full_id else ""
         print_table(
             ["ID", "Sender", "Content", "Created At"],
             messages,
-            keys=["id", "sender", "content_short", "created_at"],
+            keys=["short_id", "sender", "content_short", "created_at"],
         )
 
 
@@ -267,7 +400,7 @@ def get(
     """Get a single message."""
     client = get_client()
     try:
-        data = client.get_message(message_id)
+        data = client.get_message(_resolve_message_id(client, message_id))
     except httpx.HTTPStatusError as e:
         handle_error(e)
     if as_json:
@@ -285,7 +418,7 @@ def edit(
     """Edit a message."""
     client = get_client()
     try:
-        data = client.edit_message(message_id, content)
+        data = client.edit_message(_resolve_message_id(client, message_id), content)
     except httpx.HTTPStatusError as e:
         handle_error(e)
     if as_json:
@@ -302,11 +435,12 @@ def delete(
     """Delete a message."""
     client = get_client()
     try:
-        client.delete_message(message_id)
+        resolved_message_id = _resolve_message_id(client, message_id)
+        client.delete_message(resolved_message_id)
     except httpx.HTTPStatusError as e:
         handle_error(e)
     if as_json:
-        print_json({"status": "deleted", "message_id": message_id})
+        print_json({"status": "deleted", "message_id": resolved_message_id})
     else:
         typer.echo("Deleted.")
 

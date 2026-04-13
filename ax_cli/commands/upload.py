@@ -14,13 +14,33 @@ from ..output import JSON_OPTION, console, handle_error, print_json
 app = typer.Typer(name="upload", help="Upload files to context", no_args_is_help=True)
 
 
+def _message_attachment_ref(
+    *,
+    attachment_id: str,
+    content_type: str,
+    filename: str,
+    size_bytes: int,
+    url: str,
+    context_key: str,
+) -> dict:
+    """Build the message attachment pointer used by REST/SSE/MCP consumers."""
+    return {
+        "id": attachment_id,
+        "content_type": content_type,
+        "filename": filename,
+        "size_bytes": size_bytes,
+        "url": url,
+        "context_key": context_key,
+    }
+
+
 @app.command("file")
 def upload_file(
     file_path: str = typer.Argument(..., help="Path to the file to upload"),
     message: Optional[str] = typer.Option(None, "--message", "-m", help="Message to send referencing the upload"),
     key: Optional[str] = typer.Option(None, "--key", "-k", help="Context key (default: unique upload key)"),
     vault: bool = typer.Option(False, "--vault", help="Store permanently in vault (default: ephemeral 24h)"),
-    skip_ax: bool = typer.Option(False, "--skip-ax", help="Send message without waiting for aX reply"),
+    skip_ax: bool = typer.Option(True, "--skip-ax/--wait", help="Skip waiting for aX reply (default: skip)"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only output the attachment ID"),
     json_output: bool = JSON_OPTION,
 ):
@@ -45,7 +65,7 @@ def upload_file(
 
     # Step 1: Upload the file
     try:
-        result = client.upload_file(str(path))
+        result = client.upload_file(str(path), space_id=space_id)
     except FileNotFoundError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -81,6 +101,7 @@ def upload_file(
     context_value = {
         "type": "file_upload",
         "attachment_id": attachment_id,
+        "context_key": context_key,
         "filename": original_name,
         "content_type": content_type,
         "size": size,
@@ -91,16 +112,10 @@ def upload_file(
 
     try:
         if vault:
-            r = client._http.post(
-                f"/api/v1/spaces/{space_id}/intelligence/promote",
-                json={
-                    "key": context_key,
-                    "payload": context_value,
-                    "summary_snippet": f"Uploaded file: {original_name}",
-                    "artifact_type": "RESEARCH",
-                },
-            )
-            r.raise_for_status()
+            # Vault promotion is Redis -> Postgres. Store the context entry
+            # first, then promote that key into durable intelligence storage.
+            client.set_context(space_id, context_key, json.dumps(context_value))
+            client.promote_context(space_id, context_key, artifact_type="RESEARCH")
             storage_type = "vault"
         else:
             client.set_context(space_id, context_key, json.dumps(context_value))
@@ -122,12 +137,14 @@ def upload_file(
         else:
             content = f"📎 Uploaded `{original_name}` to context (key: `{context_key}`)"
         attachments = [
-            {
-                "id": attachment_id,
-                "content_type": content_type,
-                "filename": original_name,
-                "size_bytes": size,
-            }
+            _message_attachment_ref(
+                attachment_id=attachment_id,
+                content_type=content_type,
+                filename=original_name,
+                size_bytes=size,
+                url=url,
+                context_key=context_key,
+            )
         ]
 
         try:
