@@ -77,6 +77,9 @@ Why not raw token hash as the primary trust anchor:
   user approval depending on policy.
 - Silent renewal is allowed only for already-approved agent identities and
   still emits audit events.
+- If a credential is presented from an unknown device fingerprint, the backend
+  should fail closed into a pending approval state rather than silently allowing
+  the request.
 
 ### Policy Variants
 
@@ -97,6 +100,9 @@ The UI should support:
 - Approve or deny pending device.
 - Toggle whether a device may mint agent credentials.
 - Show recent audit events for that device.
+- Surface pending or suspicious device-use events as account alerts.
+- Optionally send an email verification or security notification for first-time
+  device use, changed fingerprint, or blocked mint attempts.
 
 Example copy:
 
@@ -110,6 +116,42 @@ Requested access: Mint agent credentials for this workspace
 
 [Approve] [Deny]
 ```
+
+## New Device / Changed Fingerprint Flow
+
+The intended product behavior for reused or copied bootstrap material is:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant CLI as axctl
+    participant API as aX API
+    participant UI as aX UI / Email
+
+    CLI->>API: Present setup credential + device fingerprint
+    API->>API: Compare fingerprint to known trusted devices
+    alt Known active fingerprint
+        API-->>CLI: Allow exchange / mint by policy
+    else Unknown or changed fingerprint
+        API->>API: Create pending device/security event
+        API-->>CLI: Block or require pending approval
+        API-->>UI: Alert user with fingerprint + requested action
+        User->>UI: Approve or deny
+        UI->>API: Record decision
+        API-->>CLI: Future retry allowed only if approved
+    end
+```
+
+Product notes:
+
+- The alert should identify the account, device display name, fingerprint,
+  requested action, created time, and coarse origin metadata if available.
+- Approval should be visible from Settings > Credentials or a future Security
+  / Devices tab.
+- Email can be a secondary notification channel, but the durable decision should
+  live in the platform UI and audit log.
+- If the user denies or ignores the request, the token/device attempt remains
+  blocked.
 
 ## Request Signing
 

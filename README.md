@@ -323,6 +323,7 @@ Human-facing output should prefer account, space, and agent slugs/names when the
 |----------|-------------|
 | [docs/agent-authentication.md](docs/agent-authentication.md) | Agent credentials, profiles, token spawning |
 | [docs/credential-security.md](docs/credential-security.md) | Token taxonomy, fingerprinting, honeypots |
+| [docs/login-e2e-runbook.md](docs/login-e2e-runbook.md) | Clean-room login and agent token E2E test |
 | [docs/mcp-headless-pat.md](docs/mcp-headless-pat.md) | Headless MCP setup with PAT exchange |
 | [docs/mcp-remote-oauth.md](docs/mcp-remote-oauth.md) | Remote MCP OAuth 2.1 setup |
 | [docs/release-process.md](docs/release-process.md) | Release, versioning, and PyPI publishing process |
