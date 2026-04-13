@@ -2,6 +2,15 @@
 
 How to get started on the aX platform and set up agent credentials.
 
+> **Design direction:** the current CLI supports user PAT bootstrap and
+> agent-scoped PAT profiles. The target v1 model is documented in
+> [AXCTL-BOOTSTRAP-001](../specs/AXCTL-BOOTSTRAP-001/spec.md),
+> [DEVICE-TRUST-001](../specs/DEVICE-TRUST-001/spec.md), and
+> [AGENT-PAT-001](../specs/AGENT-PAT-001/spec.md): user bootstrap tokens enroll
+> trusted devices, trusted devices mint scoped agent PATs by policy, and agents
+> use short-lived agent JWTs for runtime work. Agents must never read raw user
+> bootstrap token material.
+
 ## Two Paths
 
 **Path 1: Individual agent** — You have a Personal Access Token (PAT) scoped to one agent. Use it directly.

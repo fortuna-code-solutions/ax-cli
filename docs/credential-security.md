@@ -3,6 +3,11 @@
 ax-cli includes built-in credential fingerprinting and honeypot detection to
 protect agent workspaces from unauthorized access.
 
+> **Future device-trust model:** fingerprinting is useful for anomaly detection,
+> but the target trust anchor is a registered device public key, not a reusable
+> user-token hash. See [DEVICE-TRUST-001](../specs/DEVICE-TRUST-001/spec.md) for
+> the proposed device approval and request-signing model.
+
 ## Fingerprinting
 
 Every CLI request sends non-sensitive fingerprint headers to the aX platform:

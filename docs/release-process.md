@@ -31,3 +31,21 @@ Use Conventional Commit prefixes so Release Please can choose the version bump:
 
 The PyPI workflow also supports manual dispatch and GitHub Release publication.
 Those paths are fallbacks; the normal path is release PR merge to `main`.
+
+## Automation Prerequisites
+
+Release Please needs permission to open and update pull requests.
+
+Preferred setup:
+
+- Add a repository secret named `RELEASE_PLEASE_TOKEN` containing a bot PAT with
+  pull request and contents write access.
+
+Acceptable setup:
+
+- Enable the repository Actions setting that allows GitHub Actions to create pull
+  requests with `GITHUB_TOKEN`.
+
+If neither is configured, Release Please can create the release branch but will
+fail before opening the release PR. In that case, open a PR manually from the
+generated `release-please--branches--main--components--axctl` branch.
