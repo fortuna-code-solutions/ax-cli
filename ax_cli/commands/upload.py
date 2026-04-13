@@ -41,6 +41,7 @@ def upload_file(
     key: Optional[str] = typer.Option(None, "--key", "-k", help="Context key (default: unique upload key)"),
     vault: bool = typer.Option(False, "--vault", help="Store permanently in vault (default: ephemeral 24h)"),
     skip_ax: bool = typer.Option(True, "--skip-ax/--wait", help="Skip waiting for aX reply (default: skip)"),
+    no_message: bool = typer.Option(False, "--no-message", help="Store context without sending a chat signal"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only output the attachment ID"),
     json_output: bool = JSON_OPTION,
 ):
@@ -53,7 +54,7 @@ def upload_file(
         ax upload file screenshot.png -m "check this screenshot"
         ax upload file report.pdf --vault --message "aX review this report"
         ax upload file data.csv --key "sales-q1" --vault
-        ax upload file arch.png --quiet   # just get the ID
+        ax upload file arch.png --no-message --quiet   # context only, print ID
     """
     client = get_client()
     space_id = resolve_space_id(client)
@@ -80,11 +81,7 @@ def upload_file(
     original_name = result.get("original_filename", path.name)
     context_key = key or build_upload_context_key(original_name, attachment_id)
 
-    if quiet:
-        typer.echo(attachment_id)
-        return
-
-    if not json_output:
+    if not json_output and not quiet:
         console.print(f"[green]Uploaded:[/green] {original_name} ({content_type}, {size} bytes)")
 
     # Step 2: Store reference in context
@@ -121,17 +118,17 @@ def upload_file(
             client.set_context(space_id, context_key, json.dumps(context_value))
             storage_type = "ephemeral (24h)"
 
-        if not json_output:
+        if not json_output and not quiet:
             console.print(f"[green]Context:[/green] key={context_key} ({storage_type})")
     except httpx.HTTPStatusError:
-        if not json_output:
+        if not json_output and not quiet:
             console.print("[yellow]Warning: upload succeeded but context store failed[/yellow]")
         storage_type = "failed"
 
     # Step 3: Send message referencing the upload
-    # Default: always notify. Use --quiet to skip message.
+    # Default: always notify. Use --no-message (or --quiet) for storage-only.
     msg_id = None
-    if not quiet:
+    if not no_message and not quiet:
         if message is not None:
             content = f"{message}\n\n📎 Uploaded `{original_name}` to context (key: `{context_key}`)"
         else:
@@ -161,6 +158,10 @@ def upload_file(
             from .messages import _wait_for_reply
 
             _wait_for_reply(client, msg_id, timeout=60)
+
+    if quiet:
+        typer.echo(attachment_id)
+        return
 
     if json_output:
         print_json(

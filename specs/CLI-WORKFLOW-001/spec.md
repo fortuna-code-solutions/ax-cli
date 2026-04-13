@@ -325,9 +325,19 @@ scheduled for removal once the flag-based workflow surface ships.
 - Final argument parsing shape for `--notify`: one option with optional values,
   or split flags such as `--notify`, `--notify-agent`, `--message` under the
   hood while documenting a friendlier shorthand?
-- Whether `ax upload file` and `ax context upload-file` should share the exact
-  same workflow flags or whether one becomes the canonical documented path.
 - Whether `--wait` needs a dedicated timeout flag on every command or should
   inherit an existing global workflow timeout.
 - Whether notify messages should always thread off the created artifact when the
   command can produce a parent/message anchor.
+
+## Resolved: File Upload Collaboration Path
+
+`ax upload file` is the canonical collaboration command for sharing a file. It
+uploads bytes, stores a context pointer, and sends a message signal by default.
+
+`ax send --file` is equivalent when the user starts from a message and attaches
+one or more files.
+
+`ax context upload-file` remains a lower-level storage-only primitive for
+scripts and backing-store writes. It should not be the path taught to users or
+agents when the goal is "share this artifact with the team."

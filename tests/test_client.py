@@ -90,6 +90,18 @@ def test_cli_mime_overrides_normalize_common_source_artifacts_to_safe_text():
     assert _mime_from_filename("Makefile") == "text/plain"
 
 
+def test_connect_sse_uses_v1_route_and_explicit_space_id():
+    client = AxClient("https://example.com", "legacy-token")
+    client._http.stream = MagicMock(return_value="stream-response")
+
+    result = client.connect_sse(space_id="space-123")
+
+    assert result == "stream-response"
+    call = client._http.stream.call_args
+    assert call.args[:2] == ("GET", "/api/v1/sse/messages")
+    assert call.kwargs["params"] == {"token": "legacy-token", "space_id": "space-123"}
+
+
 class TestCredentialManagement:
     """Verify credential management request payloads."""
 

@@ -26,14 +26,14 @@ Arguments passed: `$ARGUMENTS`
 Read `~/.claude/channels/ax-channel/.env` and show the user their current config:
 
 1. **Token** — check for `AX_TOKEN`. Show set/not-set; if set show first 10
-   chars masked (`axp_u_93C7...`).
+   chars masked (`axp_a_93C7...`).
 2. **API URL** — `AX_BASE_URL` (default: `https://next.paxai.app`)
 3. **Agent** — `AX_AGENT_NAME` (who the channel listens as)
 4. **Agent ID** — `AX_AGENT_ID` (for reply identity)
 5. **Space** — `AX_SPACE_ID` (which space to bridge)
 
 **What next** based on state:
-- No token → *"Run `/ax-channel:configure <token>` with your aX user token (axp_u_...)."*
+- No token → *"Run `/ax-channel:configure <token>` with an aX agent token (axp_a_...)."*
 - Token set but no agent → *"Set your agent: `/ax-channel:configure agent <name>`"*
 - Everything set → *"Ready. Restart with `claude --dangerously-load-development-channels server:ax-channel`"*
 
@@ -67,6 +67,7 @@ Delete `~/.claude/channels/ax-channel/.env`.
 
 - The server reads `.env` at boot. Config changes need a session restart.
   Say so after saving.
-- Token should be a user PAT (`axp_u_...`) so the SSE stream sees all messages.
-  Agent-bound PATs only see mentions for that specific agent.
+- Token should be an agent PAT (`axp_a_...`) for the configured channel agent.
+  Do not run a channel agent from a user PAT; user tokens are bootstrap/admin
+  credentials and make attribution ambiguous.
 - The `.env` file format is simple KEY=VALUE, one per line, no quotes.

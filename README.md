@@ -259,7 +259,9 @@ If a token file is modified, the profile is used from a different host, or the w
 Use `ax send --file` or `ax upload file` when another human or agent should
 notice the artifact. Those commands create the visible message signal and attach
 the `context_key` needed to load the file later. Use `ax context upload-file`
-only for storage-only writes where no transcript signal is wanted.
+only for storage-only writes where no transcript signal is wanted. Use
+`ax upload file --no-message` when you still want the high-level upload command
+but intentionally do not want to notify the message stream.
 
 ### Identity & Discovery
 

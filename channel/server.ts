@@ -291,8 +291,10 @@ function startSSE(
         // Fresh JWT on every reconnect
         const sseJwt = await getJwt();
         log(`SSE connecting...`);
+        const sseParams = new URLSearchParams({ token: sseJwt });
+        if (SPACE_ID) sseParams.set("space_id", SPACE_ID);
         const resp = await fetch(
-          `${BASE_URL}/api/sse/messages?token=${sseJwt}`
+          `${BASE_URL.replace(/\/$/, "")}/api/v1/sse/messages?${sseParams.toString()}`
         );
 
         // Use a manual reader since EventSource isn't available in all envs

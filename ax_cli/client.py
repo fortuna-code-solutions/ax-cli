@@ -760,10 +760,10 @@ class AxClient:
         space_id: str | None = None,
         timeout: httpx.Timeout | None = None,
     ) -> httpx.Response:
-        """GET /api/sse/messages — returns streaming response.
+        """GET /api/v1/sse/messages — returns streaming response.
 
         Usage:
-            with client.connect_sse() as resp:
+            with client.connect_sse(space_id=space_id) as resp:
                 for line in resp.iter_lines():
                     if line.startswith("data:"):
                         event = json.loads(line[5:])
@@ -775,7 +775,7 @@ class AxClient:
             params["space_id"] = space_id
         return self._http.stream(
             "GET",
-            "/api/sse/messages",
+            "/api/v1/sse/messages",
             params=params,
             timeout=timeout or httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0),
         )

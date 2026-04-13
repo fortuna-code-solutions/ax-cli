@@ -187,6 +187,8 @@ def upload_file(
 
     By default, the reference is stored ephemerally (24h TTL in Redis).
     Use --vault to promote it to the permanent intelligence vault.
+    This command is storage-only; use `ax upload file` when collaborators
+    should see a message signal with the attachment.
 
     Examples:
         ax context upload-file ./report.md
