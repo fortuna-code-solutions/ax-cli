@@ -10,6 +10,7 @@ Storage: ~/.ax/profiles/<name>/profile.toml
 
 import hashlib
 import socket
+
 try:
     import tomllib
 except ModuleNotFoundError:

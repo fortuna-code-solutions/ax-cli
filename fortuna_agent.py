@@ -13,6 +13,7 @@ Commands:
   @fortuna-bot roll        — roll a d20
 """
 from __future__ import annotations
+
 import os
 import random
 import sys
