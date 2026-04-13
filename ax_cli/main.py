@@ -48,11 +48,17 @@ app.command("handoff")(handoff.run)
 def login(
     token: str = typer.Option(None, "--token", "-t", help="PAT token (prompted securely if omitted)"),
     base_url: str = typer.Option(auth.DEFAULT_LOGIN_BASE_URL, "--url", "-u", help="API base URL"),
+    env_name: str = typer.Option(
+        None,
+        "--env",
+        "-e",
+        help="Named user-login environment (e.g. dev, next, prod, customer-a)",
+    ),
     agent: str = typer.Option(None, "--agent", "-a", help="Agent name or ID (auto-detected if not set)"),
     space_id: str = typer.Option(None, "--space-id", "-s", help="Optional default space ID"),
 ):
     """Log in to aX. Prompts for a token securely when --token is omitted."""
-    auth.login_user(token=token, base_url=base_url, agent=agent, space_id=space_id)
+    auth.login_user(token=token, base_url=base_url, agent=agent, space_id=space_id, env_name=env_name)
 
 
 @app.command("send")

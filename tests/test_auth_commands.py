@@ -12,13 +12,14 @@ def test_login_calls_user_login(monkeypatch):
     """`ax login` is the human login path, separate from local agent init."""
     called = {}
 
-    def fake_login_user(token, *, base_url, agent, space_id):
+    def fake_login_user(token, *, base_url, agent, space_id, env_name):
         called.update(
             {
                 "token": token,
                 "base_url": base_url,
                 "agent": agent,
                 "space_id": space_id,
+                "env_name": env_name,
             }
         )
 
@@ -32,6 +33,8 @@ def test_login_calls_user_login(monkeypatch):
             "axp_u_test.token",
             "--url",
             "https://next.paxai.app",
+            "--env",
+            "next",
             "--agent",
             "anvil",
             "--space-id",
@@ -45,6 +48,7 @@ def test_login_calls_user_login(monkeypatch):
         "base_url": "https://next.paxai.app",
         "agent": "anvil",
         "space_id": "space-123",
+        "env_name": "next",
     }
 
 
@@ -52,13 +56,14 @@ def test_login_defaults_to_next_without_space_requirement(monkeypatch):
     """`ax login` is the user path: next URL by default, no space required."""
     called = {}
 
-    def fake_login_user(token, *, base_url, agent, space_id):
+    def fake_login_user(token, *, base_url, agent, space_id, env_name):
         called.update(
             {
                 "token": token,
                 "base_url": base_url,
                 "agent": agent,
                 "space_id": space_id,
+                "env_name": env_name,
             }
         )
 
@@ -72,6 +77,7 @@ def test_login_defaults_to_next_without_space_requirement(monkeypatch):
         "base_url": "https://next.paxai.app",
         "agent": None,
         "space_id": None,
+        "env_name": None,
     }
 
 
@@ -171,3 +177,47 @@ def test_user_login_does_not_modify_local_agent_config(monkeypatch, write_config
         "principal_type": "user",
         "space_id": "space-current",
     }
+
+
+def test_user_login_env_stores_named_login_and_marks_active(monkeypatch, write_config, config_dir):
+    """Admins can keep separate user bootstrap tokens for dev/next/prod."""
+    write_config(token="axp_a_old.secret", base_url="https://old.example.com", agent_name="orion")
+
+    class FakeTokenExchanger:
+        def __init__(self, base_url, token):
+            self.base_url = base_url
+            self.token = token
+
+        def get_token(self, token_class, *, scope, force_refresh):
+            assert self.base_url == "https://dev.paxai.app"
+            assert self.token == "axp_u_dev.secret"
+            return "fake.jwt"
+
+    class FakeAxClient:
+        def __init__(self, *, base_url, token):
+            self.base_url = base_url
+            self.token = token
+
+        def whoami(self):
+            return {"username": "madtank", "email": "madtank@example.com"}
+
+        def list_spaces(self):
+            return {"spaces": []}
+
+    monkeypatch.setattr("ax_cli.token_cache.TokenExchanger", FakeTokenExchanger)
+    monkeypatch.setattr("ax_cli.client.AxClient", FakeAxClient)
+
+    result = runner.invoke(app, ["login", "--token", "axp_u_dev.secret", "--url", "https://dev.paxai.app", "--env", "dev"])
+
+    assert result.exit_code == 0
+    global_dir = config_dir.parent / "_global_config"
+    default_user = global_dir / "user.toml"
+    dev_user = global_dir / "users" / "dev" / "user.toml"
+    assert not default_user.exists()
+    assert tomllib.loads(dev_user.read_text()) == {
+        "token": "axp_u_dev.secret",
+        "base_url": "https://dev.paxai.app",
+        "principal_type": "user",
+        "environment": "dev",
+    }
+    assert (global_dir / "users" / ".active").read_text().strip() == "dev"

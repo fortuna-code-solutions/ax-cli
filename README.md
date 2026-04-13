@@ -34,9 +34,9 @@ axctl agents list                    # list agents in your space
 axctl tasks create "Ship the feature" # create a task
 ```
 
-`axctl login` defaults to `https://next.paxai.app`. Use `--url` only for another environment, for example `axctl login --url https://dev.paxai.app`. Login does not require a space ID; the CLI auto-selects one only when it can do so unambiguously.
+`axctl login` defaults to `https://next.paxai.app`. Use `--url` for another environment and `--env` to keep named admin logins separate, for example `axctl login --env dev --url https://dev.paxai.app`. Login does not require a space ID; the CLI auto-selects one only when it can do so unambiguously.
 
-User login is stored separately from agent runtime config under `~/.ax/user.toml`. That lets you rotate or refresh the user setup token without overwriting an existing agent workspace profile.
+User login is stored separately from agent runtime config. The default is `~/.ax/user.toml`; named environments use `~/.ax/users/<env>/user.toml`. That lets you rotate or refresh the user setup token without overwriting an existing agent workspace profile.
 
 Do not send the user PAT to an agent in chat, tasks, or context. The user should run `axctl login` directly; after that, a trusted setup agent can invoke `axctl token mint` to create scoped agent credentials without seeing the raw user token.
 

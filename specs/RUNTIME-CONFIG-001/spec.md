@@ -63,14 +63,33 @@ override an explicit `AX_CONFIG_FILE` or explicit token file.
 
 ## User Login Separation
 
-User login lives in `~/.ax/user.toml` and is used for setup and user-authored
-operations.
+User login lives outside agent runtime config and is used for setup and
+user-authored operations.
+
+Default login:
+
+```text
+~/.ax/user.toml
+```
+
+Named environment logins for admins and customer VPC installs:
+
+```text
+~/.ax/users/dev/user.toml
+~/.ax/users/next/user.toml
+~/.ax/users/customer-a/user.toml
+```
+
+`axctl login --env dev --url https://dev.paxai.app` writes the named login and
+marks it active. Commands can also select one explicitly with `AX_ENV=dev`,
+`AX_USER_ENV=dev`, or command-specific `--env` flags.
 
 Agent runtime config lives in the agent work directory or in a named profile.
 
 This allows:
 
 - user rotates setup token without breaking agent runtime
+- admins keep dev, next, prod, and customer VPC bootstrap logins side by side
 - setup agent mints scoped PATs without reading the raw user token
 - agent process runs only with its own scoped credential
 
@@ -93,5 +112,7 @@ agent.
 - Channel can run from `AX_CONFIG_FILE=/path/to/.ax/config.toml`.
 - Headless MCP smoke can run from the same `AX_CONFIG_FILE`.
 - User PAT plus agent identity config is rejected.
+- `axctl login --env <name>` stores a named user bootstrap login without
+  overwriting other environment logins.
 - Agent PAT plus matching `agent_id` exchanges to an agent principal.
 - Human-facing output prefers names/slugs while JSON preserves UUIDs.

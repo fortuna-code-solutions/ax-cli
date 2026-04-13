@@ -11,6 +11,7 @@ from ax_cli.config import (
     resolve_agent_name,
     resolve_base_url,
     resolve_token,
+    resolve_user_base_url,
     resolve_user_token,
 )
 
@@ -244,6 +245,34 @@ class TestResolveToken:
 
         assert resolve_token() == "axp_a_agent.secret"
         assert resolve_user_token() == "axp_u_user.secret"
+
+    def test_named_user_env_selects_matching_user_login(self, tmp_path, monkeypatch):
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        monkeypatch.setenv("AX_CONFIG_DIR", str(global_dir))
+        _save_user_config(
+            {
+                "token": "axp_u_next.secret",
+                "base_url": "https://next.paxai.app",
+                "principal_type": "user",
+            },
+            env_name="next",
+            activate=False,
+        )
+        _save_user_config(
+            {
+                "token": "axp_u_dev.secret",
+                "base_url": "https://dev.paxai.app",
+                "principal_type": "user",
+            },
+            env_name="dev",
+            activate=False,
+        )
+
+        monkeypatch.setenv("AX_ENV", "dev")
+
+        assert resolve_user_token() == "axp_u_dev.secret"
+        assert resolve_user_base_url() == "https://dev.paxai.app"
 
 
 class TestResolveBaseUrl:

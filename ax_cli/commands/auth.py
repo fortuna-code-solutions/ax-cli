@@ -82,16 +82,19 @@ def login_user(
     base_url: str = DEFAULT_LOGIN_BASE_URL,
     space_id: str | None = None,
     agent: str | None = None,
+    env_name: str | None = None,
 ) -> None:
     """Log in a human user without touching agent runtime config."""
     token = _resolve_login_token(token)
     if agent:
         console.print("[yellow]Ignoring --agent for user login. Use an agent PAT/profile for agent runtime.[/yellow]")
 
-    cfg = _load_user_config()
+    cfg = _load_user_config(env_name)
     cfg["token"] = token
     cfg["base_url"] = base_url
     cfg["principal_type"] = "user"
+    if env_name:
+        cfg["environment"] = env_name
     cfg.pop("agent_id", None)
     cfg.pop("agent_name", None)
 
@@ -139,7 +142,7 @@ def login_user(
         if space_id:
             cfg["space_id"] = space_id
 
-    config_path = _save_user_config(cfg)
+    config_path = _save_user_config(cfg, env_name=env_name)
     console.print(f"\n[green]Saved user login:[/green] {config_path}")
     for k, v in cfg.items():
         if k == "token":

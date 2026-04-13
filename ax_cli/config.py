@@ -9,6 +9,7 @@ the agent operates — never shared via ~/.ax/ unless explicitly requested.
 """
 
 import os
+import re
 import tomllib  # stdlib 3.11+
 from pathlib import Path
 
@@ -47,24 +48,63 @@ def _global_config_dir() -> Path:
     return Path.home() / ".ax"
 
 
-def _user_config_path() -> Path:
-    """User login credential store, separate from agent runtime config."""
+def _normalize_user_env(env_name: str) -> str:
+    """Return a filesystem-safe user-login environment name."""
+    value = env_name.strip().lower()
+    if not value:
+        raise ValueError("User environment name cannot be empty")
+    return re.sub(r"[^a-z0-9_.-]+", "-", value).strip(".-")
+
+
+def _active_user_env_path() -> Path:
+    return _global_config_dir() / "users" / ".active"
+
+
+def _resolve_user_env() -> str | None:
+    env = os.environ.get("AX_USER_ENV") or os.environ.get("AX_ENV")
+    if env:
+        return _normalize_user_env(env)
+    marker = _active_user_env_path()
+    if marker.exists():
+        value = marker.read_text().strip()
+        if value:
+            return _normalize_user_env(value)
+    return None
+
+
+def _set_active_user_env(env_name: str) -> None:
+    marker = _active_user_env_path()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(_normalize_user_env(env_name) + "\n")
+    marker.chmod(0o600)
+
+
+def _user_config_path(env_name: str | None = None) -> Path:
+    """User login credential store, separate from agent runtime config.
+
+    Backward compatible default is ~/.ax/user.toml. Named environments use
+    ~/.ax/users/<env>/user.toml and can be selected with AX_ENV/AX_USER_ENV or
+    by the active environment marker written by `axctl login --env`.
+    """
+    resolved = _normalize_user_env(env_name) if env_name else _resolve_user_env()
+    if resolved:
+        return _global_config_dir() / "users" / resolved / "user.toml"
     return _global_config_dir() / "user.toml"
 
 
-def _load_user_config() -> dict:
+def _load_user_config(env_name: str | None = None) -> dict:
     """Load the user login config created by `axctl login`."""
-    cf = _user_config_path()
+    cf = _user_config_path(env_name)
     if cf.exists():
         return tomllib.loads(cf.read_text())
     return {}
 
 
-def _save_user_config(cfg: dict) -> Path:
+def _save_user_config(cfg: dict, *, env_name: str | None = None, activate: bool = True) -> Path:
     """Save user login config without touching agent workspace config."""
-    d = _global_config_dir()
+    cf = _user_config_path(env_name)
+    d = cf.parent
     d.mkdir(parents=True, exist_ok=True)
-    cf = _user_config_path()
     lines = []
     for k, v in cfg.items():
         if isinstance(v, str):
@@ -73,6 +113,8 @@ def _save_user_config(cfg: dict) -> Path:
             lines.append(f"{k} = {v}")
     cf.write_text("\n".join(lines) + "\n")
     cf.chmod(0o600)
+    if env_name and activate:
+        _set_active_user_env(env_name)
     return cf
 
 

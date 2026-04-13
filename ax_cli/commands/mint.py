@@ -6,6 +6,7 @@ exchange for user_admin JWT → issue agent PAT → optionally save + profile.
 Requires a user PAT (axp_u_). Fails clearly if run with an agent PAT.
 """
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -94,6 +95,11 @@ def mint(
         None, "--save-to", help="Directory to save token file (writes .ax/config.toml)"
     ),
     profile_name: Optional[str] = typer.Option(None, "--profile", help="Create a named profile after minting"),
+    env_name: Optional[str] = typer.Option(
+        None,
+        "--env",
+        help="Use a named user-login environment created with `axctl login --env`",
+    ),
     print_token: Optional[bool] = typer.Option(
         None,
         "--print-token/--no-print-token",
@@ -123,6 +129,9 @@ def mint(
     def status(message: str) -> None:
         if not as_json:
             console.print(message)
+
+    if env_name:
+        os.environ["AX_USER_ENV"] = env_name
 
     # Step 1: Verify user PAT
     token = resolve_user_token()

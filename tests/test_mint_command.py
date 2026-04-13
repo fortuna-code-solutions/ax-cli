@@ -157,3 +157,19 @@ def test_token_mint_uses_user_login_when_local_config_is_agent(monkeypatch, writ
 
     assert result.exit_code == 0, result.output
     assert "axp_a_newly_minted.secret" in result.output
+
+
+def test_token_mint_env_selects_named_user_login(monkeypatch, write_config):
+    write_config(token="axp_a_agent.secret", base_url="https://next.paxai.app", agent_name="orion")
+    monkeypatch.setenv("AX_USER_TOKEN", "axp_u_dev.secret")
+
+    def fake_get_user_client():
+        assert os.environ["AX_USER_ENV"] == "dev"
+        return FakeMintClient()
+
+    monkeypatch.setattr("ax_cli.commands.mint.get_user_client", fake_get_user_client)
+
+    result = runner.invoke(app, ["token", "mint", "orion", "--env", "dev"])
+
+    assert result.exit_code == 0, result.output
+    assert "axp_a_newly_minted.secret" in result.output
