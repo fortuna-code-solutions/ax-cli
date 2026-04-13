@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+ax_cli/_version.py
+
+# ax-cli config (contains tokens)
+.ax/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
