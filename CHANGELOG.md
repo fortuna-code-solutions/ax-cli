@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.1](https://github.com/fortuna-code-solutions/ax-cli/compare/v0.4.0...v0.4.1) (2026-04-13)
+
+
+### Bug Fixes
+
+* add pip install -e . to setup_demo.bat so ax command works ([a0e088c](https://github.com/fortuna-code-solutions/ax-cli/commit/a0e088c713a7a474e228e057c2f5cbac366dc4ee))
+* resolve ruff import ordering lint errors ([8d6f244](https://github.com/fortuna-code-solutions/ax-cli/commit/8d6f244939840155d57989265edb658fa9d85bfc))
+* set PYTHONIOENCODING=utf-8 in run_demo.bat for Windows ([f82bc79](https://github.com/fortuna-code-solutions/ax-cli/commit/f82bc79b85ce4c6067b53b37b8bacd49643988aa))
+
 ## [0.4.0](https://github.com/ax-platform/ax-cli/compare/v0.3.1...v0.4.0) (2026-04-13)
 
 
