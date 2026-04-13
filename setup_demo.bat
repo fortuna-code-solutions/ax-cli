@@ -11,6 +11,7 @@ if errorlevel 1 (
 
 echo Installing dependencies...
 pip install typer httpx rich tomli >nul 2>&1
+pip install -e . >nul 2>&1
 echo Done.
 
 if exist ".ax\config.toml" (
