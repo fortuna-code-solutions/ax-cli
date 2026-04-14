@@ -167,3 +167,85 @@ def test_apps_signal_flattens_wrapped_context_payload(monkeypatch):
     assert item["value"]["filename"] == "channel-flow.svg"
     assert item["summary"] == "SVG upload"
     assert item["ttl"] == 86400
+
+
+def test_apps_signal_whoami_builds_identity_widget_payload(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def whoami(self):
+            calls["whoami"] = True
+            return {
+                "id": "user-1",
+                "email": "madtank@example.com",
+                "full_name": "Jacob Taunton",
+                "username": "madtank",
+                "role": "admin",
+                "bound_agent": {
+                    "agent_id": "agent-1",
+                    "agent_name": "chatgpt_dev",
+                    "default_space_id": "space-1",
+                    "default_space_name": "madtank's Workspace",
+                    "allowed_spaces": [
+                        {"space_id": "space-1", "name": "madtank's Workspace", "is_default": True},
+                    ],
+                },
+                "resolved_space_id": "space-1",
+                "resolved_agent": "chatgpt_dev",
+            }
+
+        def send_message(
+            self,
+            space_id,
+            content,
+            *,
+            channel="main",
+            parent_id=None,
+            attachments=None,
+            metadata=None,
+            message_type="text",
+        ):
+            calls["message"] = {
+                "space_id": space_id,
+                "content": content,
+                "channel": channel,
+                "parent_id": parent_id,
+                "attachments": attachments,
+                "metadata": metadata,
+                "message_type": message_type,
+            }
+            return {"id": "msg-identity"}
+
+    monkeypatch.setattr("ax_cli.commands.apps.get_client", lambda: FakeClient())
+    monkeypatch.setattr("ax_cli.commands.apps.resolve_space_id", lambda client, explicit=None: "space-1")
+
+    result = runner.invoke(
+        app,
+        [
+            "apps",
+            "signal",
+            "whoami",
+            "--summary",
+            "CLI identity smoke",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls["whoami"] is True
+    widget = calls["message"]["metadata"]["ui"]["widget"]
+    assert widget["tool_name"] == "whoami"
+    assert widget["resource_uri"] == "ui://whoami/identity"
+    initial_data = widget["initial_data"]
+    assert initial_data["kind"] == "whoami_profile"
+    assert initial_data["state"] == "ready"
+    assert initial_data["data"]["identity"] == {
+        "principal_kind": "agent",
+        "role_label": "Agent",
+        "status": "active",
+        "handle": "chatgpt_dev",
+        "display_name": "chatgpt_dev",
+        "id": "agent-1",
+    }
+    assert initial_data["data"]["context"]["workspace_name"] == "madtank's Workspace"
+    assert initial_data["data"]["context"]["owner"]["handle"] == "madtank"

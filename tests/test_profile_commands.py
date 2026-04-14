@@ -55,6 +55,20 @@ def test_profile_env_clears_stale_agent_id_when_missing(monkeypatch, tmp_path):
     assert 'export AX_AGENT_ID="none"' in result.stdout
 
 
+def test_profile_env_outputs_shell_failure_when_verification_fails(monkeypatch, tmp_path):
+    profiles_dir = _write_profile(tmp_path, agent_id="agent-1")
+    monkeypatch.setattr(profile, "PROFILES_DIR", profiles_dir)
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    monkeypatch.chdir(other_dir)
+
+    result = runner.invoke(app, ["profile", "env", "dev"])
+
+    assert result.exit_code == 1
+    assert "Working directory mismatch" in result.stderr
+    assert "false # ax profile env failed verification" in result.stdout
+
+
 def test_profiles_dir_respects_ax_config_dir(monkeypatch, tmp_path):
     config_dir = tmp_path / "custom-ax-config"
     monkeypatch.setenv("AX_CONFIG_DIR", str(config_dir))

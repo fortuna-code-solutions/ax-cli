@@ -46,6 +46,16 @@ def _parse_json_value(value: Any) -> Any:
         return value
 
 
+def _first_text(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
 def _context_item_from_response(context_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     item = dict(payload.get("item") or payload)
     item.setdefault("key", context_key)
@@ -67,6 +77,92 @@ def _context_item_from_response(context_key: str, payload: dict[str, Any]) -> di
     return item
 
 
+def _space_name_from_whoami(payload: dict[str, Any], space_id: str) -> str:
+    bound_agent = payload.get("bound_agent") if isinstance(payload.get("bound_agent"), dict) else {}
+    for item in bound_agent.get("allowed_spaces") or []:
+        if isinstance(item, dict) and _first_text(item.get("space_id"), item.get("id")) == space_id:
+            return _first_text(item.get("name"), item.get("display_name"))
+    return _first_text(
+        bound_agent.get("default_space_name"),
+        payload.get("resolved_space_name"),
+        payload.get("space_name"),
+    )
+
+
+def _whoami_initial_data(payload: dict[str, Any], *, space_id: str, summary: str | None) -> dict[str, Any]:
+    bound_agent = payload.get("bound_agent") if isinstance(payload.get("bound_agent"), dict) else {}
+    agent_name = _first_text(bound_agent.get("agent_name"), payload.get("resolved_agent"))
+    agent_id = _first_text(bound_agent.get("agent_id"))
+    principal_kind = "agent" if agent_name else "user"
+
+    if principal_kind == "agent":
+        identity: dict[str, Any] = {
+            "principal_kind": "agent",
+            "role_label": "Agent",
+            "status": "active",
+            "handle": agent_name,
+            "display_name": agent_name,
+        }
+        if agent_id:
+            identity["id"] = agent_id
+    else:
+        identity = {
+            "principal_kind": "user",
+            "role_label": _first_text(payload.get("role"), "User").title(),
+            "status": "active",
+        }
+        user_id = _first_text(payload.get("id"), payload.get("user_id"))
+        handle = _first_text(payload.get("username"), payload.get("handle"))
+        display_name = _first_text(payload.get("full_name"), payload.get("display_name"), handle, payload.get("email"))
+        if user_id:
+            identity["id"] = user_id
+        if handle:
+            identity["handle"] = handle
+        if display_name:
+            identity["display_name"] = display_name
+        if payload.get("email"):
+            identity["email"] = payload["email"]
+
+    context: dict[str, Any] = {
+        "workspace_id": space_id,
+        "binding_label": "Bound space" if principal_kind == "agent" else "Current space",
+    }
+    space_name = _space_name_from_whoami(payload, space_id)
+    if space_name:
+        context["workspace_name"] = space_name
+    if principal_kind == "agent":
+        owner: dict[str, Any] = {}
+        owner_id = _first_text(payload.get("id"), payload.get("user_id"))
+        owner_handle = _first_text(payload.get("username"), payload.get("handle"))
+        owner_name = _first_text(payload.get("full_name"), payload.get("display_name"), owner_handle)
+        if owner_id:
+            owner["id"] = owner_id
+        if owner_handle:
+            owner["handle"] = owner_handle
+        if owner_name:
+            owner["display_name"] = owner_name
+        if payload.get("email"):
+            owner["email"] = payload["email"]
+        if owner:
+            context["owner"] = owner
+
+    data = {
+        "identity": identity,
+        "context": context,
+        "capabilities": payload.get("capabilities") or [],
+        "memory": payload.get("memory") or {},
+    }
+    return {
+        "kind": "whoami_profile",
+        "version": 2,
+        "state": "ready",
+        "data": data,
+        "active_tab": "profile",
+        "summary": summary,
+        "source": "axctl_apps_signal",
+    }
+
+
 def _build_initial_data(
     *,
     app_name: str,
@@ -74,6 +170,7 @@ def _build_initial_data(
     space_id: str,
     context_key: str | None,
     context_item: dict[str, Any] | None,
+    whoami_payload: dict[str, Any] | None,
     summary: str | None,
 ) -> dict[str, Any]:
     if app_name == "context" and context_key:
@@ -89,6 +186,9 @@ def _build_initial_data(
             "summary": summary,
             "source": "axctl_apps_signal",
         }
+
+    if app_name == "whoami":
+        return _whoami_initial_data(whoami_payload or {}, space_id=space_id, summary=summary)
 
     return {
         "kind": app_name.split("/", 1)[0],
@@ -113,6 +213,7 @@ def _build_signal_metadata(
     space_id: str,
     context_key: str | None,
     context_item: dict[str, Any] | None,
+    whoami_payload: dict[str, Any] | None,
     summary: str | None,
     alert_kind: str | None,
     severity: str,
@@ -129,6 +230,7 @@ def _build_signal_metadata(
         space_id=space_id,
         context_key=context_key,
         context_item=context_item,
+        whoami_payload=whoami_payload,
         summary=summary,
     )
     card_id = f"app-signal:{tool_call_id}"
@@ -241,6 +343,13 @@ def signal(
         except httpx.HTTPStatusError as exc:
             handle_error(exc)
 
+    whoami_payload = None
+    if app_key == "whoami":
+        try:
+            whoami_payload = client.whoami()
+        except httpx.HTTPStatusError as exc:
+            handle_error(exc)
+
     metadata, tool_call_id = _build_signal_metadata(
         app_name=app_key,
         resource_uri=spec["resource_uri"],
@@ -249,6 +358,7 @@ def signal(
         space_id=sid,
         context_key=context_key,
         context_item=context_item,
+        whoami_payload=whoami_payload,
         summary=summary,
         alert_kind=alert_kind,
         severity=severity,

@@ -318,6 +318,10 @@ def show_env(
         typer.echo(f"# Profile '{name}' failed verification:", err=True)
         for f in failures:
             typer.echo(f"#   {f}", err=True)
+        # Command substitutions mask the child's exit code:
+        # `eval "$(ax profile env bad)" && next` would otherwise run `next`
+        # with whatever stale AX_* variables are already present.
+        print("false # ax profile env failed verification")
         raise typer.Exit(1)
 
     tf = Path(profile["token_file"]).expanduser()
