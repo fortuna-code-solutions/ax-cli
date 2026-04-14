@@ -163,6 +163,68 @@ def _whoami_initial_data(payload: dict[str, Any], *, space_id: str, summary: str
     }
 
 
+def _collection_items(payload: Any, *candidate_keys: str) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in candidate_keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _collection_count(payload: Any, items: list[dict[str, Any]]) -> int:
+    if isinstance(payload, dict):
+        for key in ("count", "total"):
+            value = payload.get(key)
+            if isinstance(value, int):
+                return value
+    return len(items)
+
+
+def _collection_keys(items: list[dict[str, Any]]) -> list[str]:
+    keys: list[str] = []
+    for item in items:
+        key = _first_text(item.get("id"), item.get("space_id"), item.get("task_id"), item.get("name"))
+        if key:
+            keys.append(key)
+    return keys
+
+
+def _collection_initial_data(
+    *,
+    kind: str,
+    action: str,
+    space_id: str,
+    payload: Any,
+    summary: str | None,
+) -> dict[str, Any]:
+    key_map = {
+        "agents": ("agents", "items", "results"),
+        "spaces": ("spaces", "items", "results"),
+        "tasks": ("tasks", "items", "results"),
+    }
+    items = _collection_items(payload, *key_map.get(kind, ("items", "results")))
+    data: dict[str, Any] = {
+        "kind": kind,
+        "version": 1,
+        "action": action,
+        "items": items,
+        "keys": _collection_keys(items),
+        "count": _collection_count(payload, items),
+        "summary": summary,
+        "space_id": space_id,
+        "source": "axctl_apps_signal",
+    }
+    if isinstance(payload, dict):
+        for key in ("total", "permissions", "viewer", "space_context", "next_cursor", "has_more"):
+            if key in payload:
+                data[key] = payload[key]
+    return data
+
+
 def _build_initial_data(
     *,
     app_name: str,
@@ -171,6 +233,7 @@ def _build_initial_data(
     context_key: str | None,
     context_item: dict[str, Any] | None,
     whoami_payload: dict[str, Any] | None,
+    collection_payload: Any | None,
     summary: str | None,
 ) -> dict[str, Any]:
     if app_name == "context" and context_key:
@@ -190,8 +253,18 @@ def _build_initial_data(
     if app_name == "whoami":
         return _whoami_initial_data(whoami_payload or {}, space_id=space_id, summary=summary)
 
+    kind = app_name.split("/", 1)[0]
+    if kind in {"agents", "spaces", "tasks"} and collection_payload is not None:
+        return _collection_initial_data(
+            kind=kind,
+            action=action,
+            space_id=space_id,
+            payload=collection_payload,
+            summary=summary,
+        )
+
     return {
-        "kind": app_name.split("/", 1)[0],
+        "kind": kind,
         "version": 1,
         "action": action,
         "items": [],
@@ -214,6 +287,7 @@ def _build_signal_metadata(
     context_key: str | None,
     context_item: dict[str, Any] | None,
     whoami_payload: dict[str, Any] | None,
+    collection_payload: Any | None,
     summary: str | None,
     alert_kind: str | None,
     severity: str,
@@ -231,6 +305,7 @@ def _build_signal_metadata(
         context_key=context_key,
         context_item=context_item,
         whoami_payload=whoami_payload,
+        collection_payload=collection_payload,
         summary=summary,
     )
     card_id = f"app-signal:{tool_call_id}"
@@ -354,6 +429,17 @@ def signal(
         except httpx.HTTPStatusError as exc:
             handle_error(exc)
 
+    collection_payload = None
+    try:
+        if app_key == "agents":
+            collection_payload = client.list_agents(space_id=sid, limit=500)
+        elif app_key == "spaces":
+            collection_payload = client.list_spaces()
+        elif app_key == "tasks":
+            collection_payload = client.list_tasks(limit=50, space_id=sid)
+    except httpx.HTTPStatusError as exc:
+        handle_error(exc)
+
     metadata, tool_call_id = _build_signal_metadata(
         app_name=app_key,
         resource_uri=spec["resource_uri"],
@@ -363,6 +449,7 @@ def signal(
         context_key=context_key,
         context_item=context_item,
         whoami_payload=whoami_payload,
+        collection_payload=collection_payload,
         summary=summary,
         alert_kind=alert_kind,
         severity=severity,

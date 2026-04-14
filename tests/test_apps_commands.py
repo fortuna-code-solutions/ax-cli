@@ -254,3 +254,172 @@ def test_apps_signal_whoami_builds_identity_widget_payload(monkeypatch):
     assert calls["message"]["metadata"]["top_level_ingress"] is False
     assert calls["message"]["metadata"]["signal_only"] is True
     assert calls["message"]["metadata"]["app_signal"]["signal_only"] is True
+
+
+def test_apps_signal_agents_hydrates_dashboard_payload(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def list_agents(self, *, space_id=None, limit=None):
+            calls["list_agents"] = {"space_id": space_id, "limit": limit}
+            return {
+                "agents": [
+                    {
+                        "id": "agent-1",
+                        "name": "orion",
+                        "status": "active",
+                        "description": "QA reviewer",
+                    },
+                ],
+                "count": 1,
+            }
+
+        def send_message(
+            self,
+            space_id,
+            content,
+            *,
+            channel="main",
+            parent_id=None,
+            attachments=None,
+            metadata=None,
+            message_type="text",
+        ):
+            calls["message"] = {
+                "space_id": space_id,
+                "content": content,
+                "channel": channel,
+                "parent_id": parent_id,
+                "attachments": attachments,
+                "metadata": metadata,
+                "message_type": message_type,
+            }
+            return {"id": "msg-agents"}
+
+    monkeypatch.setattr("ax_cli.commands.apps.get_client", lambda: FakeClient())
+    monkeypatch.setattr("ax_cli.commands.apps.resolve_space_id", lambda client, explicit=None: "space-1")
+
+    result = runner.invoke(app, ["apps", "signal", "agents", "--summary", "Available agents", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["list_agents"] == {"space_id": "space-1", "limit": 500}
+    widget = calls["message"]["metadata"]["ui"]["widget"]
+    assert widget["tool_name"] == "agents"
+    assert widget["resource_uri"] == "ui://agents/dashboard"
+    initial_data = widget["initial_data"]
+    assert initial_data["kind"] == "agents"
+    assert initial_data["items"] == [
+        {
+            "id": "agent-1",
+            "name": "orion",
+            "status": "active",
+            "description": "QA reviewer",
+        },
+    ]
+    assert initial_data["keys"] == ["agent-1"]
+    assert initial_data["count"] == 1
+
+
+def test_apps_signal_spaces_hydrates_navigator_payload(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def list_spaces(self):
+            calls["list_spaces"] = True
+            return [
+                {
+                    "id": "space-1",
+                    "name": "Development",
+                    "visibility": "private",
+                    "member_count": 4,
+                }
+            ]
+
+        def send_message(
+            self,
+            space_id,
+            content,
+            *,
+            channel="main",
+            parent_id=None,
+            attachments=None,
+            metadata=None,
+            message_type="text",
+        ):
+            calls["message"] = {
+                "space_id": space_id,
+                "content": content,
+                "channel": channel,
+                "parent_id": parent_id,
+                "attachments": attachments,
+                "metadata": metadata,
+                "message_type": message_type,
+            }
+            return {"id": "msg-spaces"}
+
+    monkeypatch.setattr("ax_cli.commands.apps.get_client", lambda: FakeClient())
+    monkeypatch.setattr("ax_cli.commands.apps.resolve_space_id", lambda client, explicit=None: "space-1")
+
+    result = runner.invoke(app, ["apps", "signal", "spaces", "--summary", "Spaces ready", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["list_spaces"] is True
+    initial_data = calls["message"]["metadata"]["ui"]["widget"]["initial_data"]
+    assert initial_data["kind"] == "spaces"
+    assert initial_data["items"][0]["name"] == "Development"
+    assert initial_data["keys"] == ["space-1"]
+    assert initial_data["count"] == 1
+
+
+def test_apps_signal_tasks_hydrates_board_payload(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def list_tasks(self, limit=20, *, agent_id=None, space_id=None):
+            calls["list_tasks"] = {"limit": limit, "agent_id": agent_id, "space_id": space_id}
+            return {
+                "tasks": [
+                    {
+                        "id": "task-1",
+                        "title": "Review alert card",
+                        "status": "open",
+                        "priority": "high",
+                    }
+                ],
+                "total": 1,
+            }
+
+        def send_message(
+            self,
+            space_id,
+            content,
+            *,
+            channel="main",
+            parent_id=None,
+            attachments=None,
+            metadata=None,
+            message_type="text",
+        ):
+            calls["message"] = {
+                "space_id": space_id,
+                "content": content,
+                "channel": channel,
+                "parent_id": parent_id,
+                "attachments": attachments,
+                "metadata": metadata,
+                "message_type": message_type,
+            }
+            return {"id": "msg-tasks"}
+
+    monkeypatch.setattr("ax_cli.commands.apps.get_client", lambda: FakeClient())
+    monkeypatch.setattr("ax_cli.commands.apps.resolve_space_id", lambda client, explicit=None: "space-1")
+
+    result = runner.invoke(app, ["apps", "signal", "tasks", "--summary", "Task board ready", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["list_tasks"] == {"limit": 50, "agent_id": None, "space_id": "space-1"}
+    initial_data = calls["message"]["metadata"]["ui"]["widget"]["initial_data"]
+    assert initial_data["kind"] == "tasks"
+    assert initial_data["items"][0]["title"] == "Review alert card"
+    assert initial_data["keys"] == ["task-1"]
+    assert initial_data["count"] == 1
