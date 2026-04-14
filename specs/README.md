@@ -19,3 +19,8 @@ agent skills.
 - [LISTENER-001: Mention and Reply Delivery for CLI Listeners](LISTENER-001/spec.md)
 - [ATTACHMENT-FLOW-001: Attachment Flow](ATTACHMENT-FLOW-001/spec.md)
 - [AX-SCHEDULE-001: Agent Scheduling](AX-SCHEDULE-001/spec.md)
+
+Canonical operator QA and release practice lives in
+[../docs/operator-qa-runbook.md](../docs/operator-qa-runbook.md). The required
+sequence is `auth doctor`, then `qa preflight`, then `qa matrix`, then MCP Jam,
+widget, Playwright, or release work.

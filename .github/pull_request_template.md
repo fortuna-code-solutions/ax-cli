@@ -8,7 +8,10 @@ What changed and why?
 - [ ] `ruff check ax_cli/`
 - [ ] `ruff format --check ax_cli/`
 - [ ] `python -m build && twine check dist/*`
-- [ ] Live aX smoke test, if this changes auth, messages, uploads, listeners, or release behavior
+- [ ] `axctl auth doctor` reviewed for the target env/space, if this changes auth, messages, uploads, listeners, MCP, UI validation, or release behavior
+- [ ] `axctl qa preflight` passed for the target env/space before MCP Jam, widget, or Playwright validation
+- [ ] `axctl qa matrix` passed before promotion or cross-env/release validation
+- [ ] Live aX smoke test, if this changes auth, messages, uploads, listeners, MCP, UI validation, or release behavior
 
 ## Release Notes
 

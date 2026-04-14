@@ -253,16 +253,25 @@ The doctor command does not call the API. It reports the effective auth source,
 selected env/profile, resolved host and space, principal intent, and any ignored
 local config reason.
 
+The canonical operator path is documented in
+[docs/operator-qa-runbook.md](docs/operator-qa-runbook.md):
+
+```text
+ax auth doctor -> ax qa preflight -> ax qa matrix -> MCP Jam/widgets/Playwright/release work
+```
+
 ## Commands
 
 ### Regression Smoke
 
-Use `ax qa contracts` before MCP/UI debugging. It proves the active credential,
-space routing, and core API reads first.
+Use `ax qa preflight` before MCP/UI debugging. It proves the active credential,
+space routing, and core API reads first. Use `ax qa matrix` before promotion or
+cross-environment debugging.
 
 ```bash
-ax qa matrix --env dev --env next --space dev=<dev-space> --space next=<next-space> --for playwright --artifact-dir .ax/qa
-ax qa preflight --env dev --space-id <space-id> --for playwright --artifact .ax/qa/preflight.json
+ax auth doctor --env dev --space-id <dev-space> --json
+ax qa preflight --env dev --space-id <dev-space> --for playwright --artifact .ax/qa/preflight.json
+ax qa matrix --env dev --env next --space dev=<dev-space> --space next=<next-space> --for release --artifact-dir .ax/qa/promotion
 ax qa contracts --env dev --space-id <space-id>
 ax qa contracts --env dev --write --space-id <space-id>
 ax qa contracts --env dev --write --upload-file ./probe.md --send-message --space-id <space-id>
@@ -276,6 +285,8 @@ Use `ax qa preflight` as the gate before MCP Jam, widget, or Playwright checks;
 it runs the same contract suite and can write a JSON artifact for CI.
 Use `ax qa matrix` before promotion or cross-environment debugging; it runs
 `auth doctor` plus `qa preflight` per target and emits a comparable truth table.
+Do not debug MCP Jam, widgets, Playwright, or release drift until preflight
+passes for the target environment.
 
 ### Primitives
 
@@ -367,6 +378,7 @@ Human-facing output should prefer account, space, and agent slugs/names when the
 | [docs/login-e2e-runbook.md](docs/login-e2e-runbook.md) | Clean-room login and agent token E2E test |
 | [docs/mcp-headless-pat.md](docs/mcp-headless-pat.md) | Headless MCP setup with PAT exchange |
 | [docs/mcp-remote-oauth.md](docs/mcp-remote-oauth.md) | Remote MCP OAuth 2.1 setup |
+| [docs/operator-qa-runbook.md](docs/operator-qa-runbook.md) | Canonical doctor, preflight, matrix, and release QA flow |
 | [docs/release-process.md](docs/release-process.md) | Release, versioning, and PyPI publishing process |
 | [specs/README.md](specs/README.md) | Active CLI specs and design contracts |
 

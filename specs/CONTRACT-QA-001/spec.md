@@ -30,7 +30,30 @@ When a widget fails, the first question should be:
 
 If the answer is no, the bug is below the widget layer.
 
-MCP Jam, widget, and Playwright workflows should start with:
+## Canonical Operator Path
+
+The required operator sequence is:
+
+```text
+axctl auth doctor -> axctl qa preflight -> axctl qa matrix -> MCP Jam/widgets/Playwright/release work
+```
+
+### 1. Explain identity and config resolution
+
+Run doctor first when the environment, profile, identity, or space could be
+ambiguous:
+
+```bash
+axctl auth doctor --env dev --space-id <space-id> --json
+```
+
+Doctor is static. It does not call the API. It reports the effective auth
+source, selected env/profile, resolved host, resolved space, principal intent,
+and ignored local config reasons.
+
+### 2. Prove the single-environment API gate
+
+MCP Jam, widget, and Playwright workflows must start with:
 
 ```bash
 axctl qa preflight --env dev --space-id <space-id> --for playwright --artifact .ax/qa/preflight.json
@@ -39,17 +62,7 @@ axctl qa preflight --env dev --space-id <space-id> --for playwright --artifact .
 The preflight command runs the same contract suite as `contracts`, labels the
 downstream target, and can write a JSON artifact for CI or agent supervision.
 
-When preflight appears to target the wrong host, space, or principal, run:
-
-```bash
-axctl auth doctor --json
-axctl auth doctor --env dev --space-id <space-id> --json
-```
-
-The doctor command is the static instrument panel for credential/config
-resolution. It reports the effective auth source, selected env/profile, resolved
-host, resolved space, principal intent, and ignored local config reasons without
-calling the API.
+### 3. Compare drift before promotion
 
 Before promotion or cross-environment debugging, run:
 
@@ -66,6 +79,15 @@ axctl qa matrix \
 The matrix command runs doctor plus preflight per environment and emits a
 comparable JSON envelope. It is the drift detector: config resolution can pass
 while contract health fails, and both signals should be visible in one place.
+
+### 4. Continue to MCP, widget, Playwright, or release work
+
+Only continue when:
+
+- `doctor.ok` is true for the intended target.
+- `preflight.ok` is true for the intended target.
+- `matrix.ok` is true when comparing environments.
+- Any warnings are understood and documented when relevant to a release.
 
 ## Harness Modes
 
@@ -160,6 +182,24 @@ preflight artifact is missing or `ok` is false.
 
 The command exits non-zero when any doctor or preflight row fails.
 
+## Warning Semantics
+
+Warnings are not always hard failures, but they are never invisible.
+
+| Warning | Meaning | Operator action |
+| --- | --- | --- |
+| `global_config_contains_credentials` | `~/.ax/config.toml` contains credential or agent identity fields. | Prefer profiles or user login stores. Explain this in release evidence if present. |
+| `unsafe_local_config_ignored` | Project-local config combines a user PAT with agent identity fields. | Treat as stale/unsafe, rely on the ignored behavior only as a safety net, and clean the file when practical. |
+
+Safe credential separation:
+
+- user setup credentials live in `~/.ax/user.toml` or `~/.ax/users/<env>/user.toml`
+- agent runtime credentials live in named profiles or project-local runtime
+  configs
+- user PATs must not be used for agent runtime identity
+- `--env <name>` selects user-authored QA and bypasses active agent profiles and
+  project-local runtime config
+
 ## Identity Expectations
 
 The harness must not hide the current principal.
@@ -207,10 +247,13 @@ MCP app QA should start with this harness.
 
 ```mermaid
 flowchart LR
-  Credential[User or agent credential] --> CLI[axctl qa contracts]
-  CLI -->|passes| MCP[MCP tool call smoke]
+  Doctor[axctl auth doctor] --> Preflight[axctl qa preflight]
+  Preflight --> Matrix[axctl qa matrix for drift]
+  Matrix -->|passes| MCP[MCP Jam/tool smoke]
   MCP -->|passes| UI[Playwright widget/app panel smoke]
-  CLI -->|fails| APIBug[Fix API/auth/space contract first]
+  Doctor -->|fails| ConfigBug[Fix config/profile/env selection]
+  Preflight -->|fails| APIBug[Fix API/auth/space contract first]
+  Matrix -->|fails| DriftBug[Fix env drift before promotion]
   MCP -->|fails| ToolBug[Fix MCP tool contract]
   UI -->|fails| ShellBug[Fix frontend shell/widget bridge]
 ```

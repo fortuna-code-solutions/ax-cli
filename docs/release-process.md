@@ -6,8 +6,8 @@ publication.
 ## Flow
 
 1. Merge feature work into `dev/staging`.
-2. Validate `dev/staging` with automated tests, package build, and live smoke
-   checks when needed.
+2. Validate `dev/staging` with automated tests, package build when needed, and
+   the operator QA sequence in [Operator QA Runbook](./operator-qa-runbook.md).
 3. Promote `dev/staging` to `main` with a reviewed PR.
 4. Release Please opens or updates a release PR on `main` with:
    - `pyproject.toml` version bump
@@ -17,6 +17,49 @@ publication.
 6. The GitHub release publication triggers the PyPI publish workflow.
 7. PyPI publishes the package version. If that version already exists, publish
    is skipped.
+
+## Required Operator QA Sequence
+
+Before MCP Jam, widget, Playwright, release, or production-facing promotion
+work moves forward, run the sequence below:
+
+1. `axctl auth doctor` explains identity and config resolution.
+2. `axctl qa preflight` is the required single-environment API gate.
+3. `axctl qa matrix` compares environment drift across dev, next, prod, or
+   customer targets.
+4. Only after those pass should MCP Jam, widget, Playwright, or manual release
+   QA continue.
+
+Copy-paste dev gate:
+
+```bash
+axctl auth doctor --env dev --space-id <dev-space-id> --json
+axctl qa preflight --env dev --space-id <dev-space-id> --for release --artifact .ax/qa/dev-preflight.json --json
+```
+
+Copy-paste next gate:
+
+```bash
+axctl auth doctor --env next --space-id <next-space-id> --json
+axctl qa preflight --env next --space-id <next-space-id> --for release --artifact .ax/qa/next-preflight.json --json
+```
+
+Copy-paste promotion drift check:
+
+```bash
+axctl qa matrix \
+  --env dev \
+  --env next \
+  --space dev=<dev-space-id> \
+  --space next=<next-space-id> \
+  --for release \
+  --artifact-dir .ax/qa/promotion \
+  --json
+```
+
+Attach or summarize the generated artifacts in the promotion PR when the change
+touches auth, profiles, messages, uploads, listeners, MCP, UI validation, or
+release behavior.
 
 ## Commit Conventions
 
