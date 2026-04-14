@@ -118,6 +118,85 @@ def test_messages_list_shows_short_ids_but_json_keeps_full_ids(monkeypatch):
     assert json.loads(json_result.output)[0]["id"] == message_id
 
 
+def test_messages_list_can_request_unread_and_mark_read(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def list_messages(self, limit=20, channel="main", *, space_id=None, unread_only=False, mark_read=False):
+            calls["list"] = {
+                "limit": limit,
+                "channel": channel,
+                "space_id": space_id,
+                "unread_only": unread_only,
+                "mark_read": mark_read,
+            }
+            return {
+                "messages": [
+                    {
+                        "id": "12345678-90ab-cdef-1234-567890abcdef",
+                        "content": "unread update",
+                        "display_name": "orion",
+                        "created_at": "2026-04-13T15:00:00Z",
+                    }
+                ],
+                "unread_count": 3,
+                "marked_read_count": 1,
+            }
+
+    monkeypatch.setattr("ax_cli.commands.messages.get_client", lambda: FakeClient())
+    monkeypatch.setattr("ax_cli.commands.messages.resolve_space_id", lambda client, explicit=None: "space-1")
+
+    result = runner.invoke(app, ["messages", "list", "--unread", "--mark-read"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["list"] == {
+        "limit": 20,
+        "channel": "main",
+        "space_id": "space-1",
+        "unread_only": True,
+        "mark_read": True,
+    }
+    assert "Unread: 3" in result.output
+    assert "Marked read: 1" in result.output
+
+
+def test_messages_read_marks_single_message(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def list_messages(self, limit=20, channel="main", *, space_id=None):
+            return {"messages": [{"id": "12345678-90ab-cdef-1234-567890abcdef"}]}
+
+        def mark_message_read(self, message_id):
+            calls["message_id"] = message_id
+            return {"status": "success", "message_id": message_id}
+
+    monkeypatch.setattr("ax_cli.commands.messages.get_client", lambda: FakeClient())
+    monkeypatch.setattr("ax_cli.commands.messages.resolve_space_id", lambda client, explicit=None: "space-1")
+
+    result = runner.invoke(app, ["messages", "read", "12345678", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["message_id"] == "12345678-90ab-cdef-1234-567890abcdef"
+
+
+def test_messages_read_all_marks_space_read(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def mark_all_messages_read(self):
+            calls["all"] = True
+            return {"status": "success", "marked_read": 2}
+
+    monkeypatch.setattr("ax_cli.commands.messages.get_client", lambda: FakeClient())
+
+    result = runner.invoke(app, ["messages", "read", "--all", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["all"] is True
+    assert json.loads(result.output)["marked_read"] == 2
+
+
 def test_send_help_prefers_no_wait_language():
     result = runner.invoke(app, ["send", "--help"])
 

@@ -134,6 +134,7 @@ evidence stay connected.
 ```bash
 ax auth whoami                    # confirm identity
 ax messages list --limit 10      # what's been said
+ax messages list --unread         # what needs attention
 ax tasks list                    # what's open
 ```
 
@@ -304,6 +305,7 @@ ax send --to agent "message" --wait          # intercom: mention + wait for repl
 ax send "FYI" --no-wait                      # intentional notification only
 ax handoff agent "task" --intent review      # task + send + wait + evidence
 ax messages list --limit 10                  # recent messages
+ax messages list --unread --mark-read        # unread inbox, then clear returned items
 ax messages get MSG_ID --json                # full message + attachment metadata
 ax messages search "keyword"                 # search
 

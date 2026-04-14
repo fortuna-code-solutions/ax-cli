@@ -394,6 +394,8 @@ def send(
 def list_messages(
     limit: int = typer.Option(20, "--limit", help="Max messages to return"),
     channel: str = typer.Option("main", "--channel", help="Channel name"),
+    unread: bool = typer.Option(False, "--unread", help="Show only unread messages for the current user"),
+    mark_read: bool = typer.Option(False, "--mark-read", help="Mark returned unread messages as read"),
     space_id: Optional[str] = typer.Option(None, "--space-id", help="Override default space"),
     as_json: bool = JSON_OPTION,
 ):
@@ -401,7 +403,12 @@ def list_messages(
     client = get_client()
     sid = resolve_space_id(client, explicit=space_id)
     try:
-        data = client.list_messages(limit=limit, channel=channel, space_id=sid)
+        kwargs = {"limit": limit, "channel": channel, "space_id": sid}
+        if unread:
+            kwargs["unread_only"] = True
+        if mark_read:
+            kwargs["mark_read"] = True
+        data = client.list_messages(**kwargs)
     except httpx.HTTPStatusError as e:
         handle_error(e)
     messages = _message_items(data)
@@ -419,6 +426,41 @@ def list_messages(
             messages,
             keys=["short_id", "sender", "content_short", "created_at"],
         )
+        if isinstance(data, dict):
+            unread_count = data.get("unread_count")
+            marked_read_count = data.get("marked_read_count")
+            if unread_count is not None:
+                console.print(f"[dim]Unread: {unread_count}[/dim]")
+            if marked_read_count:
+                console.print(f"[green]Marked read: {marked_read_count}[/green]")
+
+
+@app.command("read")
+def mark_read(
+    message_id: Optional[str] = typer.Argument(None, help="Message ID to mark read"),
+    all_messages: bool = typer.Option(False, "--all", help="Mark all messages in the current space as read"),
+    as_json: bool = JSON_OPTION,
+):
+    """Mark one message, or all current-space messages, as read."""
+    if not all_messages and not message_id:
+        typer.echo("Error: provide a message ID or --all.", err=True)
+        raise typer.Exit(1)
+    if all_messages and message_id:
+        typer.echo("Error: use either a message ID or --all, not both.", err=True)
+        raise typer.Exit(1)
+
+    client = get_client()
+    try:
+        if all_messages:
+            data = client.mark_all_messages_read()
+        else:
+            data = client.mark_message_read(_resolve_message_id(client, message_id or ""))
+    except httpx.HTTPStatusError as e:
+        handle_error(e)
+    if as_json:
+        print_json(data)
+    else:
+        print_kv(data)
 
 
 @app.command("get")

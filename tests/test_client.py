@@ -138,6 +138,58 @@ def test_list_messages_passes_explicit_space_id():
     }
 
 
+def test_list_messages_can_request_unread_and_mark_read():
+    client = AxClient("https://example.com", "legacy-token")
+    response = httpx.Response(
+        200,
+        json={"messages": [], "unread_count": 0},
+        request=httpx.Request("GET", "https://example.com/api/v1/messages"),
+    )
+    client._http.get = MagicMock(return_value=response)
+
+    client.list_messages(
+        limit=5,
+        channel="main",
+        space_id="space-123",
+        unread_only=True,
+        mark_read=True,
+    )
+
+    assert client._http.get.call_args.kwargs["params"] == {
+        "limit": 5,
+        "channel": "main",
+        "space_id": "space-123",
+        "unread_only": "true",
+        "mark_read": "true",
+    }
+
+
+def test_mark_message_read_calls_backend_read_endpoint():
+    client = AxClient("https://example.com", "legacy-token")
+    response = httpx.Response(
+        200,
+        json={"status": "success", "message_id": "msg-1"},
+        request=httpx.Request("POST", "https://example.com/api/v1/messages/msg-1/read"),
+    )
+    client._http.post = MagicMock(return_value=response)
+
+    assert client.mark_message_read("msg-1")["status"] == "success"
+    assert client._http.post.call_args.args[0] == "/api/v1/messages/msg-1/read"
+
+
+def test_mark_all_messages_read_calls_backend_endpoint():
+    client = AxClient("https://example.com", "legacy-token")
+    response = httpx.Response(
+        200,
+        json={"status": "success", "marked_read": 2},
+        request=httpx.Request("POST", "https://example.com/api/v1/messages/mark-all-read"),
+    )
+    client._http.post = MagicMock(return_value=response)
+
+    assert client.mark_all_messages_read()["marked_read"] == 2
+    assert client._http.post.call_args.args[0] == "/api/v1/messages/mark-all-read"
+
+
 def test_list_tasks_passes_explicit_space_id():
     client = AxClient("https://example.com", "legacy-token")
     response = httpx.Response(

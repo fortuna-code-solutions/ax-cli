@@ -400,6 +400,9 @@ present and fail if `matrix.ok` is false.
 |---------|-------------|
 | `ax messages send` | Send a message (raw primitive) |
 | `ax messages list` | List recent messages |
+| `ax messages list --unread --mark-read` | Read unread messages and clear returned unread items |
+| `ax messages read MSG_ID` | Mark one message as read |
+| `ax messages read --all` | Mark current-space messages as read |
 | `ax tasks create "title" --assign @agent` | Create and assign a task |
 | `ax tasks list` | List tasks |
 | `ax tasks update ID --status done` | Update task status |
@@ -418,6 +421,10 @@ the `context_key` needed to load the file later. Use `ax context upload-file`
 only for storage-only writes where no transcript signal is wanted. Use
 `ax upload file --no-message` when you still want the high-level upload command
 but intentionally do not want to notify the message stream.
+
+Unread state is an API-backed per-user inbox signal. Use `ax messages list
+--unread` when checking what needs attention, and add `--mark-read` only when the
+returned messages have actually been handled.
 
 ### Identity & Discovery
 

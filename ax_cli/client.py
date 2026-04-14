@@ -462,11 +462,27 @@ class AxClient:
         *,
         space_id: str | None = None,
         agent_id: str | None = None,
+        unread_only: bool = False,
+        mark_read: bool = False,
     ) -> dict:
         params: dict[str, str | int] = {"limit": limit, "channel": channel}
         if space_id:
             params["space_id"] = space_id
+        if unread_only:
+            params["unread_only"] = "true"
+        if mark_read:
+            params["mark_read"] = "true"
         r = self._http.get("/api/v1/messages", params=params, headers=self._with_agent(agent_id))
+        r.raise_for_status()
+        return self._parse_json(r)
+
+    def mark_message_read(self, message_id: str) -> dict:
+        r = self._http.post(f"/api/v1/messages/{message_id}/read")
+        r.raise_for_status()
+        return self._parse_json(r)
+
+    def mark_all_messages_read(self) -> dict:
+        r = self._http.post("/api/v1/messages/mark-all-read")
         r.raise_for_status()
         return self._parse_json(r)
 
