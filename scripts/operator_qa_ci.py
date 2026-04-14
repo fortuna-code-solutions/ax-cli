@@ -35,6 +35,10 @@ AX_RUNTIME_ENV_KEYS = {
     "AX_USER_ENV",
 }
 
+EXIT_OK = 0
+EXIT_NOT_OK = 2
+EXIT_SKIPPED = 3
+
 
 def _bool_env(name: str, default: bool = False) -> bool:
     value = os.environ.get(name)
@@ -264,12 +268,13 @@ def main() -> int:
     if not configured:
         summary["skipped"] = True
         summary["skip_reason"] = "no configured AX_QA_<ENV>_TOKEN/BASE_URL/SPACE_ID triples found"
-        summary["ok"] = not require_matrix
+        summary["ok"] = False
+        summary["require_matrix"] = require_matrix
         summary_path = artifact_dir / "operator-qa-summary.json"
         summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
         _write_step_summary(summary)
         print(json.dumps(summary, indent=2, sort_keys=True))
-        return 0 if summary["ok"] else 1
+        return EXIT_SKIPPED
 
     for target in configured:
         _write_user_login(config_dir, target)
@@ -312,7 +317,7 @@ def main() -> int:
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     _write_step_summary(summary)
     print(json.dumps(summary, indent=2, sort_keys=True))
-    return 0 if summary["ok"] else 1
+    return EXIT_OK if summary["ok"] else EXIT_NOT_OK
 
 
 if __name__ == "__main__":

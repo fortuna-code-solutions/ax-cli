@@ -81,7 +81,15 @@ jobs:
           AX_QA_PROD_TOKEN: ${{ secrets.AX_QA_PROD_TOKEN }}
           AX_QA_PROD_BASE_URL: ${{ vars.AX_QA_PROD_BASE_URL }}
           AX_QA_PROD_SPACE_ID: ${{ vars.AX_QA_PROD_SPACE_ID }}
-        run: python scripts/operator_qa_ci.py
+        run: |
+          set +e
+          python scripts/operator_qa_ci.py
+          status=$?
+          if [ "$status" -eq 3 ] && [ "$AX_QA_REQUIRE_MATRIX" != "true" ]; then
+            echo "Operator QA skipped because no complete environment config was present."
+            exit 0
+          fi
+          exit "$status"
 
       - name: Upload operator QA artifacts
         if: always()

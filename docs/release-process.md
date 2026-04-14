@@ -66,6 +66,9 @@ targeting `main`. It skips safely when no complete QA environment variables and
 secrets are configured, uploads artifacts when it runs, and fails the promotion
 path when a configured matrix returns `ok: false`.
 
+The operator QA commands use stable exit codes: `0` for pass, `2` for a failed
+gate, `3` for skipped/no config, and `1` for crashes or command usage failures.
+
 ## Commit Conventions
 
 Use Conventional Commit prefixes so Release Please can choose the version bump:

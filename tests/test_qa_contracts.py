@@ -231,6 +231,12 @@ def test_preflight_writes_ci_artifact(monkeypatch, tmp_path):
     assert payload["ok"] is True
     assert payload["preflight"]["target"] == "playwright"
     assert payload["preflight"]["artifact"] == str(artifact.resolve())
+    assert payload["version"] == 1
+    assert payload["skipped"] is False
+    assert payload["summary"]["command"] == "ax qa preflight"
+    assert payload["summary"]["target"] == "playwright"
+    assert payload["summary"]["checks_failed"] == 0
+    assert payload["details"] == payload["checks"]
     assert saved == payload
 
 
@@ -299,9 +305,37 @@ def test_matrix_runs_doctor_and_preflight_for_each_env_and_writes_artifacts(monk
     payload = _json_output(result)
     assert payload["ok"] is True
     assert payload["target"] == "playwright"
+    assert payload["version"] == 1
+    assert payload["skipped"] is False
+    assert payload["summary"] == {
+        "command": "ax qa matrix",
+        "target": "playwright",
+        "env_count": 2,
+        "failed_envs": [],
+        "warnings": 0,
+    }
+    assert payload["details"] == payload["envs"]
     assert [row["env"] for row in payload["envs"]] == ["dev", "next"]
     assert doctor_calls == [("dev", "space-dev"), ("next", "space-next")]
     assert [call["space_id"] for call in preflight_calls] == ["space-dev", "space-next"]
     assert (tmp_path / "dev-preflight.json").exists()
     assert (tmp_path / "next-preflight.json").exists()
     assert (tmp_path / "matrix.json").exists()
+
+
+def test_matrix_without_configured_envs_returns_skipped_envelope(monkeypatch, tmp_path):
+    monkeypatch.setenv("AX_CONFIG_DIR", str(tmp_path / "empty-global"))
+    result = runner.invoke(app, ["qa", "matrix", "--json"])
+
+    assert result.exit_code == 3
+    payload = _json_output(result)
+    assert payload["version"] == 1
+    assert payload["ok"] is False
+    assert payload["skipped"] is True
+    assert payload["summary"] == {
+        "command": "ax qa matrix",
+        "target": "mcp-ui",
+        "reason": "no configured user-login environments found",
+        "env_count": 0,
+    }
+    assert payload["details"] == []

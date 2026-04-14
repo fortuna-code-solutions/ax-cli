@@ -24,6 +24,32 @@ API/CLI contract is proven first.
 `doctor` is static. It explains what will happen. `preflight` and `matrix`
 prove the runtime path by calling the API.
 
+## JSON Envelope And Exit Codes
+
+`axctl auth doctor`, `axctl qa preflight`, and `axctl qa matrix` use the same
+top-level JSON envelope:
+
+```json
+{
+  "version": 1,
+  "ok": true,
+  "skipped": false,
+  "summary": {},
+  "details": []
+}
+```
+
+Legacy command-specific fields remain in the payload, but CI, MCP dashboards,
+sentinel startup checks, and future UI panels should read the common envelope
+first.
+
+Exit codes:
+
+- `0`: command ran and `ok` is true
+- `2`: command ran and `ok` is false
+- `3`: command skipped because required config was absent
+- `1`: crash, unexpected exception, or command usage failure
+
 ## Safe Credential Rules
 
 User setup credentials and agent runtime credentials must stay separate.
@@ -209,6 +235,8 @@ environment is configured.
 Promotion PRs to `main` run this through CI with `require_matrix: false`. That
 keeps normal repos safe when env config is absent, while still blocking the
 promotion path whenever configured environments produce `matrix.ok = false`.
+The underlying runner returns exit code `3` for no-config skips; the workflow
+converts that to success only when `require_matrix` is false.
 
 ## Failure Triage
 

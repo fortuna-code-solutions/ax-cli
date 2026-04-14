@@ -1,3 +1,4 @@
+import json
 import tomllib
 
 from typer.testing import CliRunner
@@ -251,5 +252,18 @@ def test_auth_doctor_json_outputs_diagnostics(monkeypatch):
     result = runner.invoke(app, ["auth", "doctor", "--env", "dev", "--space-id", "space-1", "--json"])
 
     assert result.exit_code == 0
-    assert '"auth_source": "user_login:dev"' in result.output
-    assert '"space_id": "space-1"' in result.output
+    payload = json.loads(result.output)
+    assert payload["version"] == 1
+    assert payload["skipped"] is False
+    assert payload["summary"] == {
+        "command": "ax auth doctor",
+        "principal_intent": "user",
+        "auth_source": "user_login:dev",
+        "host": "dev.paxai.app",
+        "space_id": "space-1",
+        "warnings": 0,
+        "problems": 0,
+    }
+    assert payload["details"] == []
+    assert payload["effective"]["auth_source"] == "user_login:dev"
+    assert payload["effective"]["space_id"] == "space-1"

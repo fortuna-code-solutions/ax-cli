@@ -23,7 +23,7 @@ from ..config import (
     resolve_space_id,
 )
 from ..context_keys import build_upload_context_key
-from ..output import JSON_OPTION, console, print_json
+from ..output import EXIT_NOT_OK, EXIT_SKIPPED, JSON_OPTION, apply_envelope, console, print_json
 
 app = typer.Typer(name="qa", help="Regression and contract smoke checks", no_args_is_help=True)
 
@@ -426,6 +426,7 @@ def _run_contracts(
                     )
 
     ok = all(check["ok"] for check in checks)
+    failed_checks = [check for check in checks if not check["ok"]]
     result = {
         "ok": ok,
         "environment": selected_env,
@@ -439,6 +440,20 @@ def _run_contracts(
         "artifacts": artifacts,
         "checks": checks,
     }
+    apply_envelope(
+        result,
+        summary={
+            "command": "ax qa contracts",
+            "environment": selected_env,
+            "space_id": sid,
+            "principal_type": result["principal"]["principal_type"],
+            "mode": result["mode"],
+            "checks_total": len(checks),
+            "checks_failed": len(failed_checks),
+            "failed_checks": [check["name"] for check in failed_checks],
+        },
+        details=checks,
+    )
     return result
 
 
@@ -477,6 +492,13 @@ def _preflight_result(
         "generated_at_unix": int(time.time()),
         "command": "ax qa preflight",
     }
+    result["summary"].update(
+        {
+            "command": "ax qa preflight",
+            "target": target,
+            "preflight_passed": bool(result.get("ok")),
+        }
+    )
     return result
 
 
@@ -496,8 +518,10 @@ def _emit_result(result: dict[str, Any], *, as_json: bool, artifact_path: Path |
         if artifact_path:
             console.print(f"artifact={artifact_path}")
 
+    if result.get("skipped"):
+        raise typer.Exit(EXIT_SKIPPED)
     if not ok:
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_OK)
 
 
 @app.command("contracts")
@@ -610,8 +634,32 @@ def matrix(
     """Run auth doctor plus QA preflight across environments."""
     requested_envs = list(env_names or _configured_matrix_envs())
     if not requested_envs:
-        console.print("[red]No user-login environments found.[/red] Run axctl login --env dev --url <base-url>.")
-        raise typer.Exit(1)
+        result = {
+            "ok": False,
+            "target": target,
+            "generated_at_unix": int(time.time()),
+            "envs": [],
+        }
+        apply_envelope(
+            result,
+            skipped=True,
+            summary={
+                "command": "ax qa matrix",
+                "target": target,
+                "reason": "no configured user-login environments found",
+                "env_count": 0,
+            },
+            details=[],
+        )
+        if artifact_dir:
+            matrix_path = Path(artifact_dir).expanduser().resolve() / "matrix.json"
+            result["artifact_path"] = str(matrix_path)
+            _write_artifact(matrix_path, result)
+        if as_json:
+            print_json(result)
+        else:
+            console.print("[yellow]No user-login environments found.[/yellow] Run axctl login --env dev --url <base-url>.")
+        raise typer.Exit(EXIT_SKIPPED)
 
     space_map = _parse_space_overrides(space_overrides)
     rows: list[dict[str, Any]] = []
@@ -674,6 +722,18 @@ def matrix(
         "generated_at_unix": matrix_started,
         "envs": rows,
     }
+    failed_rows = [row for row in rows if not row["doctor_ok"] or not row["preflight_ok"]]
+    apply_envelope(
+        result,
+        summary={
+            "command": "ax qa matrix",
+            "target": target,
+            "env_count": len(rows),
+            "failed_envs": [row["env"] for row in failed_rows],
+            "warnings": sum(len(row.get("warnings", [])) for row in rows),
+        },
+        details=rows,
+    )
 
     if artifact_root:
         matrix_path = artifact_root / "matrix.json"
@@ -707,5 +767,7 @@ def matrix(
         if artifact_root:
             console.print(f"artifact_dir={artifact_root}")
 
+    if result.get("skipped"):
+        raise typer.Exit(EXIT_SKIPPED)
     if not result["ok"]:
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_OK)

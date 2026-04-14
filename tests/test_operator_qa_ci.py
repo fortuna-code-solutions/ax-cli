@@ -65,9 +65,9 @@ raise SystemExit("unexpected command: " + " ".join(args))
 def test_operator_qa_ci_skips_without_config(tmp_path):
     result = _run_script(tmp_path, env={"AX_QA_ENVS": "dev,next"})
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 3, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["skipped"] is True
     assert payload["configured_envs"] == []
     assert (tmp_path / "artifacts" / "operator-qa-summary.json").exists()
@@ -76,7 +76,7 @@ def test_operator_qa_ci_skips_without_config(tmp_path):
 def test_operator_qa_ci_can_fail_closed_when_required_config_is_missing(tmp_path):
     result = _run_script(tmp_path, env={"AX_QA_ENVS": "dev", "AX_QA_REQUIRE_MATRIX": "true"})
 
-    assert result.returncode == 1
+    assert result.returncode == 3
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert payload["skipped"] is True
@@ -130,7 +130,7 @@ def test_operator_qa_ci_fails_when_configured_matrix_fails(tmp_path):
         },
     )
 
-    assert result.returncode == 1
+    assert result.returncode == 2
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert payload["matrix_ok"] is False

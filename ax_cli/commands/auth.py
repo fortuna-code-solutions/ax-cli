@@ -18,7 +18,7 @@ from ..config import (
     resolve_token,
     save_token,
 )
-from ..output import JSON_OPTION, console, handle_error, print_json, print_kv
+from ..output import EXIT_NOT_OK, JSON_OPTION, apply_envelope, console, handle_error, print_json, print_kv
 
 app = typer.Typer(name="auth", help="Authentication & identity", no_args_is_help=True)
 token_app = typer.Typer(name="token", help="Token management", no_args_is_help=True)
@@ -165,10 +165,23 @@ def doctor(
 ):
     """Explain effective auth/config resolution without calling the API."""
     data = diagnose_auth_config(env_name=env_name, explicit_space_id=space_id)
+    effective = data["effective"]
+    apply_envelope(
+        data,
+        summary={
+            "command": "ax auth doctor",
+            "principal_intent": effective.get("principal_intent"),
+            "auth_source": effective.get("auth_source"),
+            "host": effective.get("host"),
+            "space_id": effective.get("space_id"),
+            "warnings": len(data.get("warnings", [])),
+            "problems": len(data.get("problems", [])),
+        },
+        details=data.get("problems") or data.get("warnings") or [],
+    )
     if as_json:
         print_json(data)
     else:
-        effective = data["effective"]
         status = "[green]OK[/green]" if data["ok"] else "[red]PROBLEM[/red]"
         console.print(f"[bold]aX auth doctor:[/bold] {status}")
         console.print(f"  principal_intent = {effective.get('principal_intent')}")
@@ -189,7 +202,7 @@ def doctor(
             console.print(f"[red]problem:[/red] {problem['code']} - {problem.get('reason')}")
 
     if not data["ok"]:
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_OK)
 
 
 @app.command()

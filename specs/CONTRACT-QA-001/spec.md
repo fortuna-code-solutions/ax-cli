@@ -150,9 +150,35 @@ Write checks should use temporary keys and clean up by default.
 
 `axctl qa preflight --artifact <path>` writes the full result envelope to JSON.
 
-The artifact includes:
+The common envelope for `auth doctor`, `qa preflight`, and `qa matrix` is:
+
+```json
+{
+  "version": 1,
+  "ok": true,
+  "skipped": false,
+  "summary": {},
+  "details": []
+}
+```
+
+Legacy command-specific fields remain available. New wrappers should consume
+the envelope first and only read command-specific fields when needed.
+
+Exit codes:
+
+- `0`: `ok` is true
+- `2`: command ran and `ok` is false
+- `3`: command skipped because required config was absent
+- `1`: unexpected crash or command usage failure
+
+The preflight artifact includes:
 
 - `ok`
+- `version`
+- `skipped`
+- `summary`
+- `details`
 - `environment`
 - `space_id`
 - `principal`
