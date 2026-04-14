@@ -305,6 +305,59 @@ def test_send_to_prepends_missing_mention(monkeypatch):
     assert calls["message"]["content"] == "@orion checkpoint"
 
 
+def test_send_ask_ax_prepends_ax_mention(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        _base_headers = {}
+
+        def send_message(self, space_id, content, *, channel="main", parent_id=None, attachments=None):
+            calls["message"] = {
+                "space_id": space_id,
+                "content": content,
+                "channel": channel,
+                "parent_id": parent_id,
+                "attachments": attachments,
+            }
+            return {"id": "msg-1"}
+
+    monkeypatch.setattr("ax_cli.commands.messages.get_client", lambda: FakeClient())
+    monkeypatch.setattr("ax_cli.commands.messages.resolve_space_id", lambda client, explicit=None: "space-1")
+    monkeypatch.setattr("ax_cli.commands.messages.resolve_agent_name", lambda client=None: None)
+
+    result = runner.invoke(app, ["send", "please summarize unread", "--ask-ax", "--no-wait", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["message"]["content"] == "@aX please summarize unread"
+
+
+def test_send_ask_ax_does_not_duplicate_existing_ax_mention(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        _base_headers = {}
+
+        def send_message(self, space_id, content, *, channel="main", parent_id=None, attachments=None):
+            calls["message"] = {"content": content}
+            return {"id": "msg-1"}
+
+    monkeypatch.setattr("ax_cli.commands.messages.get_client", lambda: FakeClient())
+    monkeypatch.setattr("ax_cli.commands.messages.resolve_space_id", lambda client, explicit=None: "space-1")
+    monkeypatch.setattr("ax_cli.commands.messages.resolve_agent_name", lambda client=None: None)
+
+    result = runner.invoke(app, ["send", "@aX please summarize unread", "--ask-ax", "--no-wait", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["message"]["content"] == "@aX please summarize unread"
+
+
+def test_send_ask_ax_rejects_to_combination():
+    result = runner.invoke(app, ["send", "route this", "--ask-ax", "--to", "orion"])
+
+    assert result.exit_code == 1
+    assert "use either --ask-ax or --to" in result.output
+
+
 def test_send_to_does_not_duplicate_existing_mention_and_waits_for_target(monkeypatch):
     calls = {}
 

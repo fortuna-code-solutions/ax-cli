@@ -76,6 +76,7 @@ def send_shortcut(
     timeout: int = typer.Option(60, "--timeout", "-t", help="Max seconds to wait"),
     reply_to: Optional[str] = typer.Option(None, "--reply-to", "--parent", "-r", help="Reply to message ID (thread)"),
     to: Optional[str] = typer.Option(None, "--to", help="@mention another agent by name"),
+    ask_ax: bool = typer.Option(False, "--ask-ax", help="Route this message to aX by prepending @aX"),
     act_as: Optional[str] = typer.Option(
         None, "--act-as", help="Impersonate: send as a different agent. Requires scoped token."
     ),
@@ -95,6 +96,7 @@ def send_shortcut(
         skip_ax=False,
         timeout=timeout,
         to=to,
+        ask_ax=ask_ax,
         act_as=act_as,
         files=files,
         channel="main",

@@ -302,6 +302,7 @@ ax profile use <name>                        # switch profile
 
 # Messaging
 ax send --to agent "message" --wait          # intercom: mention + wait for reply
+ax send "question" --ask-ax                  # route to aX through normal messages
 ax send "FYI" --no-wait                      # intentional notification only
 ax handoff agent "task" --intent review      # task + send + wait + evidence
 ax messages list --limit 10                  # recent messages

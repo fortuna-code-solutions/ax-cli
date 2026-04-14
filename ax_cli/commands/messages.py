@@ -211,6 +211,7 @@ def send(
     to: Optional[str] = typer.Option(
         None, "--to", help="@mention another agent by name (prepends @name to your message)"
     ),
+    ask_ax: bool = typer.Option(False, "--ask-ax", help="Route this message to aX by prepending @aX"),
     act_as: Optional[str] = typer.Option(
         None, "--act-as", help="Impersonate: send as a different agent identity. Requires a token scoped to that agent."
     ),
@@ -233,6 +234,9 @@ def send(
     """
     if skip_ax:
         wait = False
+    if ask_ax and to:
+        typer.echo("Error: use either --ask-ax or --to, not both.", err=True)
+        raise typer.Exit(1)
 
     client = get_client()
     sid = resolve_space_id(client, explicit=space_id)
@@ -345,9 +349,14 @@ def send(
         )
         console.print(f"  [dim]Uploaded: {attachments[-1]['filename']}[/dim]")
 
-    # --to: prepend @mention to content for targeting another agent
+    # Route helpers prepend a visible mention while keeping POST /messages as
+    # the single transport contract.
     final_content = content
-    if to:
+    if ask_ax:
+        mention = _target_mention("aX")
+        if not _starts_with_mention(content, mention):
+            final_content = f"{mention} {content}"
+    elif to:
         mention = _target_mention(to)
         if not _starts_with_mention(content, mention):
             final_content = f"{mention} {content}"
@@ -375,7 +384,7 @@ def send(
         return
 
     console.print(f"[green]Sent.[/green] id={msg_id}")
-    wait_label = _target_mention(to) if to else "reply"
+    wait_label = _target_mention("aX") if ask_ax else (_target_mention(to) if to else "reply")
     reply = _wait_for_reply(client, msg_id, timeout=timeout, wait_label=wait_label)
 
     if reply:

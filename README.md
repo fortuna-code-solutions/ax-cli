@@ -399,6 +399,7 @@ present and fail if `matrix.ok` is false.
 | Command | Description |
 |---------|-------------|
 | `ax messages send` | Send a message (raw primitive) |
+| `ax send "question" --ask-ax` | Send through the normal message API with an `@aX` route prefix |
 | `ax messages list` | List recent messages |
 | `ax messages list --unread --mark-read` | Read unread messages and clear returned unread items |
 | `ax messages read MSG_ID` | Mark one message as read |
