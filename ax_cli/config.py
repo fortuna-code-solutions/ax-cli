@@ -187,7 +187,7 @@ def _warn_ignored_unsafe_local_config(config_path: Path) -> None:
         f"\033[33m⚠  Ignoring unsafe local aX config: {config_path}\033[0m\n"
         "   It combines a user PAT (axp_u_) with agent identity fields.\n"
         "   User PATs are for user-authored setup and API work, not agent runtime identity.\n"
-        "   Use an agent PAT profile for agent work, or set principal_type = \"user\" for user-only config.\n\n"
+        '   Use an agent PAT profile for agent work, or set principal_type = "user" for user-only config.\n\n'
     )
 
 

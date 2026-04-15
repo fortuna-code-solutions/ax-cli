@@ -226,8 +226,7 @@ def ping_agent(
         console.print(f"[green]@{agent_name} replied.[/green] contact_mode=event_listener")
     else:
         console.print(
-            f"[yellow]No @{agent_name} reply within {timeout}s.[/yellow] "
-            "contact_mode=unknown_or_not_listening"
+            f"[yellow]No @{agent_name} reply within {timeout}s.[/yellow] contact_mode=unknown_or_not_listening"
         )
     print_kv(
         {
@@ -292,9 +291,7 @@ def discover_agents(
         "event_listeners": sum(1 for row in rows if row["contact_mode"] == "event_listener"),
         "unknown_or_not_listening": sum(1 for row in rows if row["contact_mode"] == "unknown_or_not_listening"),
         "supervisor_candidates": sum(1 for row in rows if row["mesh_role"] == "supervisor_candidate"),
-        "supervisor_candidates_not_live": sum(
-            1 for row in rows if row["warning"] == "supervisor_candidate_not_live"
-        ),
+        "supervisor_candidates_not_live": sum(1 for row in rows if row["warning"] == "supervisor_candidate_not_live"),
         "pinged": ping,
     }
     result = {"space_id": sid, "summary": summary, "agents": rows}

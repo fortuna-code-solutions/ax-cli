@@ -198,7 +198,7 @@ def test_messages_read_all_marks_space_read(monkeypatch):
 
 
 def test_send_help_prefers_no_wait_language():
-    result = runner.invoke(app, ["send", "--help"])
+    result = runner.invoke(app, ["send", "--help"], terminal_width=80)
 
     assert result.exit_code == 0, result.output
     assert "--no-wait" in result.output

@@ -589,8 +589,7 @@ def run(
         else:
             effective_watch = False
             console.print(
-                f"[yellow]@{agent_name} did not answer the contact probe; "
-                "queueing handoff without waiting.[/yellow]"
+                f"[yellow]@{agent_name} did not answer the contact probe; queueing handoff without waiting.[/yellow]"
             )
 
     task_data: dict[str, Any] | None = None

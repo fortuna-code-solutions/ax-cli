@@ -11,7 +11,9 @@ from ..config import get_client, resolve_space_id
 from ..context_keys import build_upload_context_key
 from ..output import JSON_OPTION, console, handle_error, mention_prefix, print_json
 
-app = typer.Typer(name="upload", help="Upload files to context and optionally notify the transcript", no_args_is_help=True)
+app = typer.Typer(
+    name="upload", help="Upload files to context and optionally notify the transcript", no_args_is_help=True
+)
 
 
 _mention_prefix = mention_prefix

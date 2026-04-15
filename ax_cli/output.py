@@ -15,7 +15,9 @@ EXIT_NOT_OK = 2
 EXIT_SKIPPED = 3
 
 
-def apply_envelope(data: dict, *, summary: dict | None = None, details: list | None = None, skipped: bool = False) -> dict:
+def apply_envelope(
+    data: dict, *, summary: dict | None = None, details: list | None = None, skipped: bool = False
+) -> dict:
     """Add the stable QA/diagnostic envelope without removing legacy fields."""
     data["version"] = 1
     data["skipped"] = skipped
