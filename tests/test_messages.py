@@ -197,14 +197,26 @@ def test_messages_read_all_marks_space_read(monkeypatch):
     assert json.loads(result.output)["marked_read"] == 2
 
 
-def test_send_help_prefers_no_wait_language():
+def test_send_help_prefers_no_wait_language(monkeypatch):
     result = runner.invoke(app, ["send", "--help"], terminal_width=80)
 
     assert result.exit_code == 0, result.output
-    assert "--no-wait" in result.output
     assert "--skip-ax" not in result.output
     assert "--to" in result.output
     assert "intercom" in result.output
+
+    calls = {}
+
+    def fake_send(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr("ax_cli.main.messages.send", fake_send)
+
+    no_wait_result = runner.invoke(app, ["send", "notify only", "--no-wait"])
+
+    assert no_wait_result.exit_code == 0, no_wait_result.output
+    assert calls["wait"] is False
+    assert calls["skip_ax"] is False
 
 
 def test_messages_get_resolves_short_id_prefix(monkeypatch):

@@ -398,7 +398,7 @@ def init(
         if not registered:
             if not resolved_name:
                 console.print("[yellow]This is an enrollment token. Provide an agent name:[/yellow]")
-                console.print("  ax auth init --token axp_a_... --agent my-agent-name")
+                console.print("  axctl auth init --token axp_a_... --agent my-agent-name")
             raise typer.Exit(1)
 
         console.print("[green]Token bound.[/green] Exchange successful.")
