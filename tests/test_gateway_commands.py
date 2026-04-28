@@ -1987,7 +1987,7 @@ print("done", flush=True)
     assert shared.tool_calls[0]["tool_name"] == "sleep"
     assert shared.tool_calls[0]["message_id"] == "msg-1"
     assert snapshot["current_activity"] in {None, "warming up"}
-    recent = gateway_core.load_recent_gateway_activity()
+    recent = gateway_core.load_recent_gateway_activity(limit=20)
     events = [row["event"] for row in recent]
     assert "message_claimed" in events
     assert "tool_started" in events

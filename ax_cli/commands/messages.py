@@ -17,6 +17,7 @@ from .gateway import _approval_required_guidance, _local_process_fingerprint
 from .watch import _iter_sse
 
 app = typer.Typer(name="messages", help="Message operations", no_args_is_help=True)
+SPACE_OPTION = typer.Option(None, "--space", "--space-id", "-s", help="Target space id, slug, or name")
 
 
 def _gateway_local_connect(
@@ -638,7 +639,7 @@ def send(
     ),
     channel: str = typer.Option("main", "--channel", help="Channel name"),
     parent: Optional[str] = typer.Option(None, "--parent", "--reply-to", "-r", help="Parent message ID (thread reply)"),
-    space_id: Optional[str] = typer.Option(None, "--space-id", help="Override default space"),
+    space_id: Optional[str] = SPACE_OPTION,
     as_json: bool = JSON_OPTION,
 ):
     """Send a message and wait for a reply by default.
@@ -906,7 +907,7 @@ def list_messages(
     channel: str = typer.Option("main", "--channel", help="Channel name"),
     unread: bool = typer.Option(False, "--unread", help="Show only unread messages for the current user"),
     mark_read: bool = typer.Option(False, "--mark-read", help="Mark returned unread messages as read"),
-    space_id: Optional[str] = typer.Option(None, "--space-id", help="Override default space"),
+    space_id: Optional[str] = SPACE_OPTION,
     as_json: bool = JSON_OPTION,
 ):
     """List recent messages."""
